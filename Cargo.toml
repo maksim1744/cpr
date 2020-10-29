@@ -1,0 +1,16 @@
+[package]
+name = "cpr"
+version = "0.1.0"
+authors = ["Maksim Gorokhovskii <magor1744@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+indoc = "1.0"
+reqwest = {version="0.10.8", features = ["blocking", "cookies"] }
+soup = "0.5.0"
+subprocess = "0.2.6"
+chrono = "0.4.19"
+serde_json = "1.0"
+rand = "0.7.3"
