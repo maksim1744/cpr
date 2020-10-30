@@ -14,3 +14,5 @@ subprocess = "0.2.6"
 chrono = "0.4.19"
 serde_json = "1.0"
 rand = "0.7.3"
+
+druid = { git = "https://github.com/linebender/druid.git" }

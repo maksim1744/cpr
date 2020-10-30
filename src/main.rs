@@ -18,7 +18,7 @@ use serde_json::Value;
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 
-extern crate reqwest;
+mod draw;
 
 const LOCAL_PARAMS_NAME: &str = "params";
 const SETTINGS_FILE: &str = "C:/Users/magor/AppData/Local/cp_rust/settings.json";
@@ -757,7 +757,6 @@ fn make_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     }
 }
 
-
 // ************************************* main *************************************
 
 
@@ -783,6 +782,8 @@ fn main() {
         submit(&args[1..].to_vec(), &params);
     } else if args[0] == "mktest" {
         make_test(&args[1..].to_vec(), &params);
+    } else if args[0] == "draw" {
+        draw::draw(&args[1..].to_vec(), &params);
     } else if args[0] == "todo" {
         println!("cpr test --check");
         println!("cpr draw");
