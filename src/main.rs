@@ -29,6 +29,7 @@ enum ProblemSource {
     Codeforces(String, String),
     CodeChef(String, String),
     AtCoder(String, String),
+    CodinGamePuzzle(String),
 }
 
 fn help() {
@@ -242,6 +243,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 }
             }
             tests.retain(|x| mask.contains(x));
+            i += 1;
         } else if args[i] == "-q" || args[i] == "--quiet" {
             quiet = true;
         } else if args[i].starts_with("-") {
@@ -429,7 +431,7 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
 
         let soup = Soup::new(&problem_response.text().unwrap());
         let mut pres: Vec<_> = soup.tag("pre").find_all().collect();
-        pres = pres[1..pres.len() / 2].to_vec();
+        pres = pres[2 - pres.len()/2 % 2..pres.len() / 2].to_vec();
 
         for i in 0..pres.len() / 2 {
             let input = pres[i * 2].text();
@@ -440,6 +442,40 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         }
 
         println!("Parsed {} tests from atcoder", pres.len() / 2);
+    } else if url.contains("codingame.com/ide/puzzle") {
+        let problem = url.split("/").collect::<Vec<_>>().last().unwrap().to_string();
+        let client = reqwest::blocking::Client::builder().cookie_store(true)
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36").build().unwrap();
+
+        let response = client.post("https://www.codingame.com/services/Puzzle/generateSessionFromPuzzlePrettyId")
+            .body(format!("[null, \"{}\", false]", problem)).send().unwrap().text().unwrap();
+
+        let handle: Value = serde_json::from_str(&response).unwrap();
+        let handle = handle["handle"].to_string();
+        let handle = handle[1..handle.len() - 1].to_string();  // remove quotes
+
+        let response = client.post("https://www.codingame.com/services/TestSession/startTestSession")
+            .body(format!("[\"{}\"]", handle)).send().unwrap().text().unwrap();
+
+        let data: Value = serde_json::from_str(&response).unwrap();
+        let data: Vec<Value> = serde_json::from_str(&data["currentQuestion"]["question"]["testCases"].to_string()).unwrap();
+
+        print!("Downloaded 0 tests out of {}", data.len());
+        io::stdout().flush().unwrap();
+
+        for (i, item) in data.iter().enumerate() {
+            let input_id = item["inputBinaryId"].to_string();
+            let answer_id = item["outputBinaryId"].to_string();
+            let input = client.get(&format!("https://static.codingame.com/servlet/fileservlet?id={}", input_id)).send().unwrap().text().unwrap();
+            let answer = client.get(&format!("https://static.codingame.com/servlet/fileservlet?id={}", answer_id)).send().unwrap().text().unwrap();
+            let ind = first_available_test();
+            fs::File::create(&["in", &ind.to_string()].concat()).unwrap().write(input.as_bytes()).unwrap();
+            fs::File::create(&["ans", &ind.to_string()].concat()).unwrap().write(answer.as_bytes()).unwrap();
+            print!("\rDownloaded {} tests out of {}", i + 1, data.len());
+            io::stdout().flush().unwrap();
+        }
+
+        println!("\nParsed {} tests from codingame", data.len());
     } else {
         eprintln!("I don't know how to parse from this url :(");
         std::process::exit(1);
@@ -959,6 +995,9 @@ fn get_problem_source() -> ProblemSource {
         let contest = parts[parts.len() - 2];
         let problem = parts[parts.len() - 1];
         return ProblemSource::AtCoder(contest.to_string(), problem.to_string());
+    } else if path.to_lowercase().contains("codingame") && path.to_lowercase().contains("puzzles") {
+        let problem = parts[parts.len() - 1];
+        return ProblemSource::CodinGamePuzzle(problem.to_string());
     }
     ProblemSource::None
 }
@@ -975,6 +1014,8 @@ fn guess_url_from_path() -> Option<String> {
         return Some(format!("https://www.codechef.com/{}/problems/{}", contest, problem));
     } else if let ProblemSource::AtCoder(contest, problem) = problem_source {
         return Some(format!("https://atcoder.jp/contests/{0}/tasks/{0}_{1}", contest, problem.to_lowercase()));
+    } else if let ProblemSource::CodinGamePuzzle(problem) = problem_source {
+        return Some(format!("https://www.codingame.com/ide/puzzle/{}", problem));
     }
     None
 }
