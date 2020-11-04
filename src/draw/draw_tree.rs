@@ -16,6 +16,7 @@ const PADDING: f64 = 8.0;
 
 // for tree nodes
 const RADIUS: f64 = 1.0;
+const WIDTH: f64 = 0.05;
 const CHILD_SEP: f64 = 0.3;
 const LEVEL_SEP: f64 = 1.5;
 
@@ -24,6 +25,7 @@ const BACKGROUND: Color = Color::rgb8(0x30 as u8, 0x30 as u8, 0x30 as u8);
 #[derive(Clone, Lens, Data)]
 struct AppData {
     g: Rc<Vec<Vec<usize>>>,
+    ugly_edges: bool,
 }
 
 struct DrawingWidget {
@@ -32,7 +34,9 @@ struct DrawingWidget {
     last_mouse_pos: Point,
     size: Size,
     first_time: bool,
-    need_size: Vec<(f64, f64)>,
+    pos: Vec<Point>,
+    moving_vertex: bool,
+    vertex: usize,
 }
 
 impl DrawingWidget {
@@ -42,31 +46,29 @@ impl DrawingWidget {
         p
     }
 
-    fn init_dfs(&mut self, g: &Vec<Vec<usize>>, v: usize, par: usize) {
-        self.need_size[v].1 = RADIUS * 2.0;
-        for &k in g[v].iter() {
-            if k != par {
-                self.init_dfs(g, k, v);
-                if self.need_size[v].0 != 0.0 {
-                    self.need_size[v].0 += CHILD_SEP;
-                }
-                self.need_size[v].0 += self.need_size[k].0;
-                self.need_size[v].1 = self.need_size[v].1.max(self.need_size[k].1 + RADIUS * 2.0 + LEVEL_SEP);
-            }
-        }
-        self.need_size[v].0 = self.need_size[v].0.max(RADIUS * 2.0);
-    }
+    fn draw_vertex(&self, ctx: &mut PaintCtx, _data: &AppData, _env: &Env, v: usize, mut pos: Point) {
+        pos = self.transform(pos);
+        let scaled_radius = RADIUS * self.scale;
 
-    fn draw_vertex(&self, ctx: &mut PaintCtx, _data: &AppData, _env: &Env, v: usize, pos: Point) {
-        let circle = Circle::new(self.transform(pos), RADIUS * self.scale);
+        if pos.x < -scaled_radius || pos.y < -scaled_radius || pos.x > self.size.width + scaled_radius || pos.y > self.size.height + scaled_radius {
+            return;
+        }
+
+        let circle = Circle::new(pos, scaled_radius);
         ctx.fill(circle, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8));
-        let circle = Circle::new(self.transform(pos), RADIUS * self.scale - 2.0);
+        let circle = Circle::new(pos, scaled_radius - WIDTH * self.scale);
         ctx.fill(circle, &BACKGROUND);
+
+        let name = v.to_string();
+        let mut font_size = 1.0 * self.scale;
+        if name.len() > 3 {
+            font_size = font_size / name.len() as f64 * 3.0;
+        }
 
         let text = ctx.text();
         let layout = text
             .new_text_layout(v.to_string())
-            .font(FontFamily::SERIF, 1.0 * self.scale)
+            .font(FontFamily::SERIF, font_size)
             .text_color(Color::rgb8(0xff, 0xff, 0xff))
             // .alignment(TextAlignment::Start)
             .build()
@@ -74,57 +76,108 @@ impl DrawingWidget {
 
         let text_size = layout.size();
 
-        let mut text_pos = self.transform(pos);
+        let mut text_pos = pos;
         text_pos.x -= text_size.width / 2.0;
         text_pos.y -= text_size.height / 2.0;
 
         ctx.draw_text(&layout, text_pos);
     }
 
-    fn draw_dfs(&self, ctx: &mut PaintCtx, data: &AppData, env: &Env, v: usize, par: usize, mut pos: Point) -> Point {
-        let mut root_pos = pos.clone();
-        root_pos.y += RADIUS;
+    fn init_pos(&mut self, g: &Vec<Vec<usize>>) {
+        let mut levels: Vec<Vec<usize>> = vec![Vec::new(); g.len() + 1];
+        let mut level: Vec<usize> = vec![0; g.len()];
+        let mut used: Vec<bool> = vec![false; g.len()];
 
-        pos.y += RADIUS * 2.0 + LEVEL_SEP;
+        levels[0].push(0);
+        used[0] = true;
 
-        let mut first = true;
-        let mut left_child = root_pos.x + self.need_size[v].0 / 2.0;
-        let mut right_child = root_pos.x + self.need_size[v].0 / 2.0;
-
-        let mut childs = Vec::new();
-
-        for &k in data.g[v].iter() {
-            if k != par {
-                let p = self.draw_dfs(ctx, data, env, k, v, pos);
-                childs.push((k, p.clone()));
-                if first {
-                    left_child = p.x;
-                    first = false;
+        for i in 0..levels.len() {
+            if levels[i].is_empty() {
+                break;
+            }
+            let mut next: Vec<usize> = Vec::new();
+            for &v in levels[i].iter() {
+                for &k in g[v].iter() {
+                    if !used[k] {
+                        used[k] = true;
+                        next.push(k);
+                        level[k] = i + 1;
+                    }
                 }
-                right_child = p.x;
-                pos.x += self.need_size[k].0 + CHILD_SEP;
+            }
+            levels[i + 1] = next;
+        }
+
+        let mut child_modifier: Vec<Point> = vec![Point::new(0.0, 0.0); g.len()];
+        self.pos = vec![Point::new(0.0, 0.0); g.len()];
+
+        for i in (0..levels.len()).rev() {
+            let y = (RADIUS * 2.0 + LEVEL_SEP) * i as f64;
+            let mut last_x = 0.0;
+            let mut cur_modifier = Point::new(0.0, 0.0);
+            for &v in levels[i].iter() {
+                let mut first_child = 0.0;
+                let mut last_child = 0.0;
+                let mut first = true;
+                for &k in g[v].iter() {
+                    if level[k] == level[v] + 1 {
+                        if first {
+                            first_child = self.pos[k].x + cur_modifier.x;
+                            first = false;
+                        }
+                        last_child = self.pos[k].x + cur_modifier.x;
+                    }
+                }
+
+                child_modifier[v].x = cur_modifier.x;
+
+                if first {  // leaf
+                } else {
+                    let mid = (first_child + last_child) / 2.0;
+                    if mid < last_x {
+                        child_modifier[v].x += last_x - mid;
+                        cur_modifier.x += last_x - mid;
+                    } else {
+                        last_x = mid;
+                    }
+                }
+
+                self.pos[v] = Point::new(last_x , y);
+
+                last_x += RADIUS * 2.0 + CHILD_SEP;
             }
         }
 
-        root_pos.x = (left_child + right_child) / 2.0;
+        for i in 0..levels.len() {
+            for &v in levels[i].iter() {
+                for &k in g[v].iter() {
+                    if level[k] == level[v] + 1 {
+                        self.pos[k].x += child_modifier[v].x;
+                        self.pos[k].y += child_modifier[v].y;
 
-        for &(k, point) in childs.iter() {
-            ctx.stroke(Line::new(self.transform(point), self.transform(root_pos)), &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), 2.0);
-            self.draw_vertex(ctx, data, env, k, point);
+                        child_modifier[k].x += child_modifier[v].x;
+                        child_modifier[k].y += child_modifier[v].y;
+                    }
+                }
+            }
         }
-
-        root_pos
     }
 }
 
 impl Widget<AppData> for DrawingWidget {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut AppData, _env: &Env) {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut AppData, _env: &Env) {
         match event {
             Event::MouseMove(e) => {
                 if e.buttons.contains(MouseButton::Left) {
-                    self.center.x -= (e.pos.x - self.last_mouse_pos.x) / self.scale;
-                    self.center.y -= (e.pos.y - self.last_mouse_pos.y) / self.scale;
-                    self.last_mouse_pos = e.pos;
+                    if self.moving_vertex {
+                        self.pos[self.vertex].x += (e.pos.x - self.last_mouse_pos.x) / self.scale;
+                        self.pos[self.vertex].y += (e.pos.y - self.last_mouse_pos.y) / self.scale;
+                        self.last_mouse_pos = e.pos;
+                    } else {
+                        self.center.x -= (e.pos.x - self.last_mouse_pos.x) / self.scale;
+                        self.center.y -= (e.pos.y - self.last_mouse_pos.y) / self.scale;
+                        self.last_mouse_pos = e.pos;
+                    }
                     ctx.request_paint();
                 }
             },
@@ -134,6 +187,13 @@ impl Widget<AppData> for DrawingWidget {
             },
             Event::MouseDown(e) => {
                 self.last_mouse_pos = e.pos.clone();
+                self.moving_vertex = false;
+                for i in 0..data.g.len() {
+                    if !self.first_time && e.pos.distance(self.transform(self.pos[i])) < RADIUS * self.scale {
+                        self.moving_vertex = true;
+                        self.vertex = i;
+                    }
+                }
             },
             _ => (),
         }
@@ -172,13 +232,38 @@ impl Widget<AppData> for DrawingWidget {
         ctx.fill(Rect::from_origin_size(Point{x: 0.0, y: 0.0}, size), &BACKGROUND);
 
         if self.first_time {
-            self.need_size = vec![(0.0, 0.0); data.g.len()];
-            self.init_dfs(&data.g, 0 as usize, usize::MAX);
-            self.scale = size.height / self.need_size[0].1 * 0.8;
+            self.init_pos(&data.g);
             self.first_time = false;
+            let mut width: f64 = 0.0;
+            let mut height: f64 = 0.0;
+            for &p in self.pos.iter() {
+                width = width.max(p.x);
+                height = height.max(p.y);
+            }
+            self.center = Point::new(width / 2.0, height / 2.0);
+            width += RADIUS * 2.0;
+            height += RADIUS * 2.0;
+            self.scale = (size.width / width).min(size.height / height) * 0.8;
         }
-        let root_pos = self.draw_dfs(ctx, data, env, 0 as usize, usize::MAX, Point{ x: -self.need_size[0].0 / 2.0, y: -self.need_size[0].1 / 2.0 });
-        self.draw_vertex(ctx, data, env, 0, root_pos);
+
+        let mut delta: f64 = 0.0;
+        if data.ugly_edges {
+            delta = RADIUS;
+        }
+
+        for i in 0..data.g.len() {
+            for &j in data.g[i].iter() {
+                if self.pos[i].y < self.pos[j].y {
+                    ctx.stroke(Line::new(
+                        self.transform(Point::new(self.pos[i].x, self.pos[i].y + delta)),
+                        self.transform(Point::new(self.pos[j].x, self.pos[j].y - delta))),
+                        &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale);
+                }
+            }
+        }
+        for i in 0..data.g.len() {
+            self.draw_vertex(ctx, data, env, i, self.pos[i]);
+        }
     }
 }
 
@@ -191,15 +276,33 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
 
             Flags:
                 --help              Display this message
+                --ugly-edges        Draw edges in a different way to make sure they don't
+                                    intersect nodes.
         "};
         print!("{}", s);
         return;
     }
 
+    let mut app_data = AppData{
+        g: Rc::new(Vec::new()),
+        ugly_edges: false,
+    };
+
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--ugly-edges" {
+            app_data.ugly_edges = true;
+        } else {
+            eprintln!("Unknown option \"{}\"", args[i]);
+            std::process::exit(1);
+        }
+        i += 1;
+    }
 
     let mut s = String::new();
     io::stdin().read_line(&mut s).unwrap();
     let n: usize = s.trim().parse().unwrap();
+
     let mut g: Vec<Vec<usize>> = vec![Vec::new(); n];
     for _i in 0..n-1 {
         s.clear();
@@ -213,6 +316,8 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         g[v].push(u);
     }
 
+    app_data.g = Rc::new(g);
+
     let window = WindowDesc::new(make_layout)
         .window_size(Size {
             width: 800.0,
@@ -221,9 +326,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         .resizable(true)
         .title("Drawing");
     AppLauncher::with_window(window)
-        .launch(AppData{
-            g: Rc::new(g),
-        })
+        .launch(app_data)
         .expect("launch failed");
 }
 
@@ -236,7 +339,9 @@ fn make_layout() -> impl Widget<AppData> {
                 last_mouse_pos: Point::new(0.0, 0.0),
                 size: Size::new(0.0, 0.0),
                 first_time: true,
-                need_size: Vec::new(),
+                pos: Vec::new(),
+                moving_vertex: false,
+                vertex: 0,
             },
             1.0
         )
