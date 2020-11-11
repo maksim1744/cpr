@@ -7,15 +7,19 @@ use indoc::indoc;
 use std::rc::Rc;
 
 use druid::widget::prelude::*;
-use druid::widget::{Flex, Widget, MainAxisAlignment, CrossAxisAlignment};
-use druid::{Size, AppLauncher, WindowDesc, Data, Lens, Color, Rect, Point, WidgetExt, MouseButton};
-use druid::kurbo::{Circle, Line};
+use druid::widget::{Flex, Widget, MainAxisAlignment, CrossAxisAlignment, Checkbox, Button};
+use druid::{
+    Size, AppLauncher, WindowDesc, Data, Lens, Color, Rect, Point, WidgetExt, MouseButton,
+    Command, Target, Selector,
+};
+use druid::kurbo::{Circle, Line, RoundedRect};
 use druid::piet::{FontFamily, Text, TextLayoutBuilder, TextLayout};
 
 const PADDING: f64 = 8.0;
 
 // for tree nodes
 const RADIUS: f64 = 1.0;
+const RECT_RADIUS: f64 = 0.2;
 const WIDTH: f64 = 0.05;
 const CHILD_SEP: f64 = 0.3;
 const LEVEL_SEP: f64 = 1.5;
@@ -26,6 +30,9 @@ const BACKGROUND: Color = Color::rgb8(0x30 as u8, 0x30 as u8, 0x30 as u8);
 struct AppData {
     g: Rc<Vec<Vec<usize>>>,
     ugly_edges: bool,
+    vertex_info: Rc<Vec<String>>,
+    only_vertex_info: bool,
+    start_from_1: bool,
 }
 
 struct DrawingWidget {
@@ -37,6 +44,7 @@ struct DrawingWidget {
     pos: Vec<Point>,
     moving_vertex: bool,
     vertex: usize,
+    sizes: Vec<Size>,
 }
 
 impl DrawingWidget {
@@ -46,41 +54,91 @@ impl DrawingWidget {
         p
     }
 
-    fn draw_vertex(&self, ctx: &mut PaintCtx, _data: &AppData, _env: &Env, v: usize, mut pos: Point) {
+    fn draw_vertex(&self, ctx: &mut PaintCtx, data: &AppData, _env: &Env, mut v: usize, mut pos: Point) {
         pos = self.transform(pos);
         let scaled_radius = RADIUS * self.scale;
 
-        if pos.x < -scaled_radius || pos.y < -scaled_radius || pos.x > self.size.width + scaled_radius || pos.y > self.size.height + scaled_radius {
-            return;
+
+        if data.vertex_info.is_empty() {
+            if pos.x < -scaled_radius || pos.y < -scaled_radius || pos.x > self.size.width + scaled_radius || pos.y > self.size.height + scaled_radius {
+                return;
+            }
+
+            let circle = Circle::new(pos, scaled_radius);
+            ctx.fill(circle, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8));
+            let circle = Circle::new(pos, scaled_radius - WIDTH * self.scale);
+            ctx.fill(circle, &BACKGROUND);
+
+            let name = v.to_string();
+            let mut font_size = 1.0 * self.scale;
+            if name.len() > 3 {
+                font_size = font_size / name.len() as f64 * 3.0;
+            }
+
+            if data.start_from_1 {
+                v += 1;
+            }
+
+            let text = ctx.text();
+            let layout = text
+                .new_text_layout(v.to_string())
+                .font(FontFamily::SERIF, font_size)
+                .text_color(Color::rgb8(0xff, 0xff, 0xff))
+                // .alignment(TextAlignment::Start)
+                .build()
+                .unwrap();
+
+            let text_size = layout.size();
+
+            let mut text_pos = pos;
+            text_pos.x -= text_size.width / 2.0;
+            text_pos.y -= text_size.height / 2.0;
+
+            ctx.draw_text(&layout, text_pos);
+        } else {
+            if pos.x < -self.sizes[v].width / 2.0 * self.scale                   || pos.y < -self.sizes[v].height / 2.0 * self.scale ||
+               pos.x >  self.size.width + self.sizes[v].width / 2.0 * self.scale || pos.y >  self.size.height + self.sizes[v].height / 2.0 * self.scale {
+                return;
+            }
+
+            let mut num = v;
+            if data.start_from_1 {
+                num = v + 1;
+            }
+
+            let name;
+            if data.only_vertex_info {
+                name = data.vertex_info[v].clone();
+            } else {
+                name = num.to_string() + " (" + &data.vertex_info[v] + ")";
+            }
+
+            let text = ctx.text();
+            let layout = text
+                .new_text_layout(name)
+                .font(FontFamily::MONOSPACE, 1.0 * self.scale)
+                .text_color(Color::rgb8(0xff, 0xff, 0xff))
+                // .alignment(TextAlignment::Start)
+                .build()
+                .unwrap();
+
+            let text_size = layout.size();
+
+            let rect = RoundedRect::from_rect(Rect::from_center_size(pos,
+                        Size::new(self.sizes[v].width * self.scale, self.sizes[v].height * self.scale)),
+                        RECT_RADIUS * self.scale);
+            ctx.fill(rect, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8));
+            let rect = RoundedRect::from_rect(Rect::from_center_size(pos,
+                        Size::new((self.sizes[v].width - WIDTH) * self.scale, (self.sizes[v].height - WIDTH) * self.scale)),
+                        RECT_RADIUS * self.scale);
+            ctx.fill(rect, &BACKGROUND);
+
+            let mut text_pos = pos;
+            text_pos.x -= text_size.width / 2.0;
+            text_pos.y -= text_size.height / 2.0;
+
+            ctx.draw_text(&layout, text_pos);
         }
-
-        let circle = Circle::new(pos, scaled_radius);
-        ctx.fill(circle, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8));
-        let circle = Circle::new(pos, scaled_radius - WIDTH * self.scale);
-        ctx.fill(circle, &BACKGROUND);
-
-        let name = v.to_string();
-        let mut font_size = 1.0 * self.scale;
-        if name.len() > 3 {
-            font_size = font_size / name.len() as f64 * 3.0;
-        }
-
-        let text = ctx.text();
-        let layout = text
-            .new_text_layout(v.to_string())
-            .font(FontFamily::SERIF, font_size)
-            .text_color(Color::rgb8(0xff, 0xff, 0xff))
-            // .alignment(TextAlignment::Start)
-            .build()
-            .unwrap();
-
-        let text_size = layout.size();
-
-        let mut text_pos = pos;
-        text_pos.x -= text_size.width / 2.0;
-        text_pos.y -= text_size.height / 2.0;
-
-        ctx.draw_text(&layout, text_pos);
     }
 
     fn init_pos(&mut self, g: &Vec<Vec<usize>>) {
@@ -162,6 +220,150 @@ impl DrawingWidget {
             }
         }
     }
+
+    fn init_sizes(&mut self, ctx: &mut PaintCtx, data: &AppData) {
+        let scaled_radius = RADIUS * self.scale;
+
+        self.sizes = vec![Size::new(0.0, 0.0); data.g.len()];
+
+        for v in 0..data.g.len() {
+            let name;
+            if data.only_vertex_info {
+                name = data.vertex_info[v].clone();
+            } else {
+                name = v.to_string() + " (" + &data.vertex_info[v] + ")";
+            }
+
+            let text = ctx.text();
+            let layout = text
+                .new_text_layout(name)
+                .font(FontFamily::MONOSPACE, 1.0 * self.scale)
+                .text_color(Color::rgb8(0xff, 0xff, 0xff))
+                // .alignment(TextAlignment::Start)
+                .build()
+                .unwrap();
+
+            let text_size = layout.size();
+            self.sizes[v] = Size::new((text_size.width + scaled_radius).max(scaled_radius * 2.0), scaled_radius * 2.0);
+            self.sizes[v].width /= self.scale;
+            self.sizes[v].height /= self.scale;
+        }
+    }
+
+    fn inside_node(&self, data: &AppData, v: usize, pos: Point) -> bool {
+        let vertex = self.transform(self.pos[v]);
+
+        if data.vertex_info.is_empty() {
+            return vertex.distance(pos) < RADIUS * self.scale;
+        } else {
+            let dx = (pos.x - vertex.x).abs() / self.scale;
+            let dy = (pos.y - vertex.y).abs() / self.scale;
+            return dx * 2.0 < self.sizes[v].width && dy * 2.0 < self.sizes[v].height;
+        }
+    }
+
+    // returns width of a tree
+    fn init_pos_info(&mut self, g: &Vec<Vec<usize>>) -> f64 {
+        let mut levels: Vec<Vec<usize>> = vec![Vec::new(); g.len() + 1];
+        let mut level: Vec<usize> = vec![0; g.len()];
+        let mut used: Vec<bool> = vec![false; g.len()];
+
+        levels[0].push(0);
+        used[0] = true;
+
+        for i in 0..levels.len() {
+            if levels[i].is_empty() {
+                break;
+            }
+            let mut next: Vec<usize> = Vec::new();
+            for &v in levels[i].iter() {
+                for &k in g[v].iter() {
+                    if !used[k] {
+                        used[k] = true;
+                        next.push(k);
+                        level[k] = i + 1;
+                    }
+                }
+            }
+            levels[i + 1] = next;
+        }
+
+        let mut child_modifier: Vec<Point> = vec![Point::new(0.0, 0.0); g.len()];
+        let mut widths: Vec<f64> = vec![0.0; g.len()];
+        self.pos = vec![Point::new(0.0, 0.0); g.len()];
+
+        for i in (0..levels.len()).rev() {
+            let y = (RADIUS * 2.0 + LEVEL_SEP) * i as f64;
+            for &v in levels[i].iter() {
+                let mut first = true;
+                for &k in g[v].iter() {
+                    if level[k] == level[v] + 1 {
+                        if first {
+                            first = false;
+                        } else {
+                            widths[v] += CHILD_SEP;
+                        }
+                        child_modifier[k].x += widths[v];
+                        widths[v] += widths[k];
+                    }
+                }
+                if widths[v] < self.sizes[v].width {
+                    let dif = (self.sizes[v].width - widths[v]) / 2.0;
+                    for &k in g[v].iter() {
+                        if level[k] == level[v] + 1 {
+                            child_modifier[k].x += dif;
+                        }
+                    }
+                    widths[v] = self.sizes[v].width;
+                }
+                self.pos[v] = Point::new(widths[v] / 2.0, y);
+            }
+        }
+
+        for i in 0..levels.len() {
+            for &v in levels[i].iter() {
+                self.pos[v].x += child_modifier[v].x;
+                self.pos[v].y += child_modifier[v].y;
+                for &k in g[v].iter() {
+                    if level[k] == level[v] + 1 {
+                        child_modifier[k].x += child_modifier[v].x;
+                        child_modifier[k].y += child_modifier[v].y;
+                    }
+                }
+            }
+        }
+
+        widths[0]
+    }
+
+    fn refresh(&mut self, ctx: &mut PaintCtx, data: &AppData) {
+        let size: Size = ctx.size();
+        if !data.vertex_info.is_empty() {
+            self.init_sizes(ctx, &data);
+            let width = self.init_pos_info(&data.g);
+            self.first_time = false;
+            let mut height: f64 = 0.0;
+            for &p in self.pos.iter() {
+                height = height.max(p.y);
+            }
+            self.center = Point::new(width / 2.0, height / 2.0);
+            height += RADIUS * 2.0;
+            self.scale = (size.width / width).min(size.height / height) * 0.8;
+        } else {
+            self.init_pos(&data.g);
+            self.first_time = false;
+            let mut width: f64 = 0.0;
+            let mut height: f64 = 0.0;
+            for &p in self.pos.iter() {
+                width = width.max(p.x);
+                height = height.max(p.y);
+            }
+            self.center = Point::new(width / 2.0, height / 2.0);
+            width += RADIUS * 2.0;
+            height += RADIUS * 2.0;
+            self.scale = (size.width / width).min(size.height / height) * 0.8;
+        }
+    }
 }
 
 impl Widget<AppData> for DrawingWidget {
@@ -189,11 +391,15 @@ impl Widget<AppData> for DrawingWidget {
                 self.last_mouse_pos = e.pos.clone();
                 self.moving_vertex = false;
                 for i in 0..data.g.len() {
-                    if !self.first_time && e.pos.distance(self.transform(self.pos[i])) < RADIUS * self.scale {
+                    if self.inside_node(data, i, e.pos) {
                         self.moving_vertex = true;
                         self.vertex = i;
                     }
                 }
+            },
+            Event::Command(_) => {
+                self.first_time = true;
+                ctx.request_paint();
             },
             _ => (),
         }
@@ -219,10 +425,7 @@ impl Widget<AppData> for DrawingWidget {
         _data: &AppData,
         _env: &Env,
     ) -> Size {
-        Size {
-            width: bc.max().width,
-            height: bc.max().height,
-        }
+        bc.max()
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &AppData, env: &Env) {
@@ -232,18 +435,7 @@ impl Widget<AppData> for DrawingWidget {
         ctx.fill(Rect::from_origin_size(Point{x: 0.0, y: 0.0}, size), &BACKGROUND);
 
         if self.first_time {
-            self.init_pos(&data.g);
-            self.first_time = false;
-            let mut width: f64 = 0.0;
-            let mut height: f64 = 0.0;
-            for &p in self.pos.iter() {
-                width = width.max(p.x);
-                height = height.max(p.y);
-            }
-            self.center = Point::new(width / 2.0, height / 2.0);
-            width += RADIUS * 2.0;
-            height += RADIUS * 2.0;
-            self.scale = (size.width / width).min(size.height / height) * 0.8;
+            self.refresh(ctx, data);
         }
 
         let mut delta: f64 = 0.0;
@@ -275,9 +467,14 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
             Draws points
 
             Flags:
-                --help              Display this message
-                --ugly-edges        Draw edges in a different way to make sure they don't
-                                    intersect nodes.
+                --help                 Display this message
+                --ugly-edges           Draw edges in a different way to make sure they don't
+                                       intersect nodes.
+                --vertex-info, -vi     Add some information to the nodes.
+                  -vi=[opt1],[opt2]    Configure options for vertex info
+                  -vi=only             Don't show vertex indices, only info
+                  -vi=lines            Read info for each vertex from new line (by default
+                                       it reads one line and splits it by spaces)
         "};
         print!("{}", s);
         return;
@@ -286,12 +483,26 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut app_data = AppData{
         g: Rc::new(Vec::new()),
         ugly_edges: false,
+        vertex_info: Rc::new(Vec::new()),
+        only_vertex_info: false,
+        start_from_1: false,
     };
+
+    let mut is_vertex_info = false;
+    let mut vertex_info_lines = false;
 
     let mut i = 0;
     while i < args.len() {
         if args[i] == "--ugly-edges" {
             app_data.ugly_edges = true;
+        } else if args[i].starts_with("--vertex-info") || args[i].starts_with("-vi") {
+            is_vertex_info = true;
+            if args[i].contains("only") {
+                app_data.only_vertex_info = true;
+            }
+            if args[i].contains("lines") {
+                vertex_info_lines = true;
+            }
         } else {
             eprintln!("Unknown option \"{}\"", args[i]);
             std::process::exit(1);
@@ -301,7 +512,27 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let mut s = String::new();
     io::stdin().read_line(&mut s).unwrap();
-    let n: usize = s.trim().parse().unwrap();
+    let n: usize = s.trim().split(" ").next().unwrap().parse().unwrap();
+
+    if is_vertex_info {
+        let mut vertex_info: Vec<String> = Vec::new();
+        if !vertex_info_lines {
+            let mut s = String::new();
+            io::stdin().read_line(&mut s).unwrap();
+            vertex_info = s.trim().split(" ").map(|x| x.to_string()).collect::<Vec<_>>();
+        } else {
+            for _i in 0..n {
+                let mut s = String::new();
+                io::stdin().read_line(&mut s).unwrap();
+                vertex_info.push(s.trim().to_string());
+            }
+        }
+        if vertex_info.len() < n {
+            eprintln!("Not enough vertex info: need {}, got {}", n, vertex_info.len());
+            std::process::exit(1);
+        }
+        app_data.vertex_info = Rc::new(vertex_info);
+    }
 
     let mut g: Vec<Vec<usize>> = vec![Vec::new(); n];
     for _i in 0..n-1 {
@@ -331,6 +562,8 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
 }
 
 fn make_layout() -> impl Widget<AppData> {
+    let drawing_widget_id = WidgetId::next();
+
     Flex::row()
         .with_flex_child(
             DrawingWidget{
@@ -342,13 +575,21 @@ fn make_layout() -> impl Widget<AppData> {
                 pos: Vec::new(),
                 moving_vertex: false,
                 vertex: 0,
-            },
+                sizes: Vec::new(),
+            }.with_id(drawing_widget_id),
             1.0
         )
         .with_spacer(PADDING)
         .with_child(
             Flex::column()
-                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .with_child(Checkbox::new("Start from 1").lens(AppData::start_from_1))
+                .with_spacer(PADDING)
+                .with_child(Checkbox::new("Ugly edges").lens(AppData::ugly_edges))
+                .with_spacer(PADDING)
+                .with_child(Button::new("Refresh").on_click(move |ctx: &mut EventCtx, _data, _env| {
+                    ctx.submit_command(Command::new(Selector::new("refresh"), (), Target::Widget(drawing_widget_id)));
+                }))
+                .cross_axis_alignment(CrossAxisAlignment::Start),
         )
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .main_axis_alignment(MainAxisAlignment::End)

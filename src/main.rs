@@ -39,6 +39,7 @@ fn help() {
         Use \"cpr [option] --help\" to know more about specific option
 
         Options:
+            draw                Draws something
             help                Display this message
             init                Inits directory with main file and parses samples
             mk                  Make file, write template to it and open it
