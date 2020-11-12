@@ -794,6 +794,51 @@ fn make_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     }
 }
 
+fn measure_time(args: &Vec<String>, _params: &HashMap<String, String>) {
+    if !args.is_empty() && args[0] == "--help" {
+        let s = indoc! {"
+            Usage: cpr time [command_line]
+
+            Executes [command_line] and measures execution time
+
+            Flags:
+                --help              Display this message
+        "};
+        print!("{}", s);
+        return;
+    }
+
+    if args.is_empty() {
+        eprintln!("Specify args");
+        std::process::exit(1);
+    }
+
+    let mut filename_vec: Vec<String> = Vec::new();
+    for item in args.iter() {
+        filename_vec.extend(item.split_whitespace().map(|x| String::from(x)).collect::<Vec<_>>());
+    }
+
+    if cfg!(unix) {
+        filename_vec[0] = ["./", &filename_vec[0]].concat().to_string();
+    }
+
+    let now = Instant::now();
+    let mut p = match Popen::create(&filename_vec[..], PopenConfig {
+        ..Default::default()
+    }) {
+        Ok(x) => x,
+        Err(_) => {
+            eprintln!("Error when starting process {:?}", filename_vec);
+            std::process::exit(1)
+        }
+    };
+
+    p.wait().unwrap();
+    let duration = now.elapsed().as_secs_f32();
+
+    eprintln!("time: {:.3}", duration);
+}
+
 // ************************************* main *************************************
 
 
@@ -821,9 +866,10 @@ fn main() {
         make_test(&args[1..].to_vec(), &params);
     } else if args[0] == "draw" {
         draw::draw(&args[1..].to_vec(), &params);
+    } else if args[0] == "time" {
+        measure_time(&args[1..].to_vec(), &params);
     } else if args[0] == "todo" {
         println!("cpr test --check");
-        println!("cpr draw");
         println!("cpr param");
         println!("cpr interact");
         println!("cpr time");
@@ -831,7 +877,6 @@ fn main() {
         eprintln!("Unknown option \"{}\"", args[0]);
         std::process::exit(1);
     }
-    // eprintln!("{:?}", now.elapsed().as_millis());
 }
 
 
