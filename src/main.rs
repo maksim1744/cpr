@@ -77,6 +77,9 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
                                     check is successful and not 0 otherwise. Merged input
                                     and output will be written to \"inout\", where you can
                                     see it.
+                --easy              Specify command line for easy solution
+                --gen               Specify command line for generator
+                --check             Specify command line for checker
         "};
         print!("{}", s);
         return;
@@ -87,6 +90,9 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut i = 0;
     let mut quiet = false;
     let mut check = false;
+    let mut easy_str = String::from("easy");
+    let mut gen_str = String::from("gen");
+    let mut check_str = String::from("check");
 
     while i < args.len() {
         if args[i] == "-s" {
@@ -106,6 +112,27 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             quiet = true;
         } else if args[i] == "--check" {
             check = true;
+        } else if args[i] == "--easy" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify easy filename after \"--easy\"");
+                std::process::exit(1);
+            }
+            easy_str = args[i + 1].clone();
+            i += 1;
+        } else if args[i] == "--gen" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify gen filename after \"--gen\"");
+                std::process::exit(1);
+            }
+            gen_str = args[i + 1].clone();
+            i += 1;
+        } else if args[i] == "--check" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify check filename after \"--check\"");
+                std::process::exit(1);
+            }
+            check_str = args[i + 1].clone();
+            i += 1;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
             std::process::exit(1);
@@ -120,7 +147,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     loop {
         print!("Case #{}:  ", case);
         io::stdout().flush().unwrap();
-        let result = run_and_wait(&["gen", &seed.to_string()], "", "in");
+        let result = run_and_wait(&[&gen_str, &seed.to_string()], "", "in");
         if !result.success() {
             println!("X  [seed = {}]", seed);
             break;
@@ -129,7 +156,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         io::stdout().flush().unwrap();
 
         if !check {
-            let result = run_and_wait(&["easy"], "in", "ans");
+            let result = run_and_wait(&[&easy_str], "in", "ans");
             if !result.success() {
                 println!("X  [seed = {}]", seed);
                 break;
@@ -150,7 +177,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             let inout = [fs::read_to_string("in").unwrap(), fs::read_to_string("out").unwrap()].concat();
             fs::File::create("inout").unwrap().write(inout.as_bytes()).unwrap();
 
-            let result = run_and_wait(&["check"], "inout", "ans");
+            let result = run_and_wait(&[&check_str], "inout", "ans");
             if !result.success() {
                 println!("X  [seed = {}]", seed);
                 break;
