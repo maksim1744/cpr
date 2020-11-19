@@ -33,6 +33,7 @@ struct AppData {
     vertex_info: Rc<Vec<String>>,
     only_vertex_info: bool,
     start_from_1: bool,
+    edge_info: Rc<Vec<((usize, usize), String)>>,
 }
 
 struct DrawingWidget {
@@ -139,6 +140,37 @@ impl DrawingWidget {
 
             ctx.draw_text(&layout, text_pos);
         }
+    }
+
+    fn draw_edge_info(&self, ctx: &mut PaintCtx, _data: &AppData, _env: &Env, u: usize, v: usize, s: &String) {
+        let pos = self.transform(Point::new((self.pos[u].x + self.pos[v].x) / 2.0, (self.pos[u].y + self.pos[v].y) / 2.0));
+
+        let text = ctx.text();
+        let layout = text
+            .new_text_layout(s.clone())
+            .font(FontFamily::MONOSPACE, 0.5 * self.scale)
+            .text_color(Color::rgb8(0xff, 0xff, 0xff))
+            // .alignment(TextAlignment::Start)
+            .build()
+            .unwrap();
+
+        let mut text_size = layout.size();
+
+        let mut text_pos = pos;
+        text_pos.x -= text_size.width / 2.0;
+        text_pos.y -= text_size.height / 2.0;
+
+        text_size.width += text_size.height / 2.0;
+
+        let rect = Rect::from_center_size(pos, text_size);
+        ctx.fill(rect, &BACKGROUND);
+        let rect = RoundedRect::from_rect(Rect::from_center_size(pos,
+                    text_size),
+                    RECT_RADIUS * self.scale);
+        ctx.stroke(rect, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale / 2.0);
+
+
+        ctx.draw_text(&layout, text_pos);
     }
 
     fn init_pos(&mut self, g: &Vec<Vec<usize>>) {
@@ -453,6 +485,11 @@ impl Widget<AppData> for DrawingWidget {
                 }
             }
         }
+
+        for ((u, v), s) in data.edge_info.iter() {
+            self.draw_edge_info(ctx, data, env, *u, *v, s);
+        }
+
         for i in 0..data.g.len() {
             self.draw_vertex(ctx, data, env, i, self.pos[i]);
         }
@@ -475,6 +512,8 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
                   -vi=only             Don't show vertex indices, only info
                   -vi=lines            Read info for each vertex from new line (by default
                                        it reads one line and splits it by spaces)
+                --edge-info, -ei       Add edge information (on the same line with the
+                                       corresponding edge)
         "};
         print!("{}", s);
         return;
@@ -486,10 +525,12 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         vertex_info: Rc::new(Vec::new()),
         only_vertex_info: false,
         start_from_1: false,
+        edge_info: Rc::new(Vec::new()),
     };
 
     let mut is_vertex_info = false;
     let mut vertex_info_lines = false;
+    let mut is_edge_info = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -503,6 +544,8 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
             if args[i].contains("lines") {
                 vertex_info_lines = true;
             }
+        } else if args[i] == "--edge-info" || args[i] == "-ei" {
+            is_edge_info = true;
         } else {
             eprintln!("Unknown option \"{}\"", args[i]);
             std::process::exit(1);
@@ -535,16 +578,23 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
     }
 
     let mut g: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut edge_info: Vec<((usize, usize), String)> = Vec::new();
     for _i in 0..n-1 {
         s.clear();
         io::stdin().read_line(&mut s).unwrap();
-        let mut iter = s.trim().split(" ").map(|x| x.parse::<usize>().unwrap());
-        let mut u = iter.next().unwrap();
-        let mut v = iter.next().unwrap();
+        let mut iter = s.trim().split(" ");
+        let mut u = iter.next().unwrap().parse::<usize>().unwrap();
+        let mut v = iter.next().unwrap().parse::<usize>().unwrap();
         u -= 1;
         v -= 1;
+        if is_edge_info {
+            edge_info.push(((u, v), iter.collect::<Vec<_>>().join(" ")));
+        }
         g[u].push(v);
         g[v].push(u);
+    }
+    if is_edge_info {
+        app_data.edge_info = Rc::new(edge_info);
     }
 
     app_data.g = Rc::new(g);
