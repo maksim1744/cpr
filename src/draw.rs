@@ -2,6 +2,7 @@ use std::collections::{HashMap};
 
 use indoc::indoc;
 
+mod draw_matrix;
 mod draw_points;
 mod draw_tree;
 
@@ -15,6 +16,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
             Types:
                 pts, points         Draw points on a plane
                 tree                Draw tree
+                matrix              Draw matrix (or a cell field)
 
             Flags:
                 --help              Display this message
@@ -26,6 +28,8 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         draw_points::draw(&args[1..].to_vec(), _params);
     } else if args[0] == "tree" {
         draw_tree::draw(&args[1..].to_vec(), _params);
+    } else if args[0] == "matrix" {
+        draw_matrix::draw(&args[1..].to_vec(), _params);
     } else {
         eprintln!("Unknown option \"{}\"", args[0]);
         std::process::exit(1);
