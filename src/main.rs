@@ -18,6 +18,8 @@ use serde_json::Value;
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+
 mod draw;
 
 const LOCAL_PARAMS_NAME: &str = "params";
@@ -292,14 +294,21 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
         let duration = now.elapsed().as_millis();
         print!("{:>5} ms   ", duration);
 
+        let mut stdout = StandardStream::stdout(ColorChoice::Always);
         if let ExitStatus::Other(0) = result {
-            println!("failed with TLE");
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+            writeln!(&mut stdout, "failed with TLE").unwrap();
+            stdout.set_color(&ColorSpec::new()).unwrap();
+
             if !quiet {
                 println!("========== in  ==========");
                 println!("{}", read_lines_trim(&["in", &test.to_string()].concat()).join("\n"));
             }
         } else if !result.success() {
-            println!("failed with status {:?}", result);
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+            writeln!(&mut stdout, "failed with status {:?}", result).unwrap();
+            stdout.set_color(&ColorSpec::new()).unwrap();
+
             if !quiet {
                 println!("========== in  ==========");
                 println!("{}", read_lines_trim(&["in", &test.to_string()].concat()).join("\n"));
@@ -309,9 +318,14 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 println!("{}", read_lines_trim("err").join("\n"));
             }
         } else if !Path::new(&["ans", &test.to_string()].concat()).exists() {
-            println!("?");
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
+            writeln!(&mut stdout, "?").unwrap();
+            stdout.set_color(&ColorSpec::new()).unwrap();
         } else if !compare_output(&["out", &test.to_string()].concat(), &["ans", &test.to_string()].concat()) {
-            println!("failed");
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+            writeln!(&mut stdout, "failed").unwrap();
+            stdout.set_color(&ColorSpec::new()).unwrap();
+
             if !quiet {
                 println!("========== in  ==========");
                 println!("{}", read_lines_trim(&["in", &test.to_string()].concat()).join("\n"));
@@ -321,7 +335,9 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 println!("{}", read_lines_trim(&["ans", &test.to_string()].concat()).join("\n"));
             }
         } else {
-            println!("OK");
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green))).unwrap();
+            writeln!(&mut stdout, "OK").unwrap();
+            stdout.set_color(&ColorSpec::new()).unwrap();
         }
     }
 }
