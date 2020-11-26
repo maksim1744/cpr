@@ -44,6 +44,7 @@ fn help() {
             draw                Draws something
             help                Display this message
             init                Inits directory with main file and parses samples
+            interact            Connects main.exe and interact.exe to test interactive problems
             mk                  Make file, write template to it and open it
             mktest              Make test case to test your solution
             parse               Parse samples from url (now only codeforces, atcoder, codechef)
@@ -385,6 +386,135 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             writeln!(&mut stdout, "OK").unwrap();
             stdout.set_color(&ColorSpec::new()).unwrap();
         }
+    }
+}
+
+fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
+    if !args.is_empty() && args[0] == "--help" {
+        let s = indoc! {"
+            Usage: cpr interact [filename] [flags]
+
+            Flags:
+                --help              Display this message
+                -q, --quiet         Don't display anything, except number of current test
+                --interactf         Specify interactor filename (\"interact\" by default)
+        "};
+        print!("{}", s);
+        return;
+    }
+
+    let mut seed = 0;
+    let mut quiet = false;
+    let mut filename = String::from("main");
+    let mut interact = String::from("interact");
+
+    let mut i = 0;
+
+    while i < args.len() {
+        if args[i] == "-s" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify seed after \"-s\"");
+                std::process::exit(1);
+            }
+            seed = match args[i + 1].parse() {
+                Ok(x) => x,
+                Err(_) => {
+                    eprintln!("Can't parse integer seed after \"-s\"");
+                    std::process::exit(1)
+                }
+            };
+            i += 1;
+        } else if args[i] == "-q" || args[i] == "--quiet" {
+            quiet = true;
+        } else if args[i] == "--interactf" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify check filename after \"--interact\"");
+                std::process::exit(1);
+            }
+            interact = args[i + 1].clone();
+            i += 1;
+        } else if args[i].starts_with("-") {
+            eprintln!("Unknown flag \"{}\"", args[i]);
+            std::process::exit(1);
+        } else {
+            filename = args[i].clone();
+        }
+        i += 1;
+    }
+
+    let mut filename_vec: Vec<String> = Vec::new();
+    filename_vec.extend(filename.split_whitespace().map(|x| String::from(x)).collect::<Vec<_>>());
+
+    if cfg!(unix) {
+        filename_vec[0] = ["./", &filename_vec[0]].concat().to_string();
+    }
+
+    let mut interact_vec: Vec<String> = Vec::new();
+    interact_vec.extend(interact.split_whitespace().map(|x| String::from(x)).collect::<Vec<_>>());
+
+    if cfg!(unix) {
+        interact_vec[0] = ["./", &filename_vec[0]].concat().to_string();
+    }
+
+    let mut case = 1;
+
+    loop {
+        let mut p_main = match Popen::create(&filename_vec[..], PopenConfig {
+            stdin: Redirection::Pipe,
+            stdout: Redirection::Pipe,
+            // stderr: Redirection::File(fs::File::create("errm").unwrap()),
+            ..Default::default()
+        }) {
+            Ok(x) => x,
+            Err(_) => {
+                eprintln!("Error when starting process {:?}", filename);
+                std::process::exit(1)
+            }
+        };
+
+        let mut p_interact = match Popen::create(&[&interact_vec[..], &[seed.to_string()]].concat(), PopenConfig {
+            stdin: Redirection::File(p_main.stdout.as_mut().unwrap().try_clone().unwrap()),
+            stdout: Redirection::File(p_main.stdin.as_mut().unwrap().try_clone().unwrap()),
+            stderr: Redirection::File(fs::File::create("err").unwrap()),
+            ..Default::default()
+        }) {
+            Ok(x) => x,
+            Err(_) => {
+                eprintln!("Error when starting process {:?}", interact);
+                std::process::exit(1)
+            }
+        };
+
+        print!("Case #{}: [seed = {}] ", case, seed);
+        io::stdout().flush().unwrap();
+
+        p_interact.wait_timeout(std::time::Duration::from_secs(5)).unwrap();
+        p_main.wait_timeout(std::time::Duration::from_secs(5)).unwrap();
+
+        if let None = p_main.poll() {
+            p_main.kill().unwrap();
+        }
+
+        if let None = p_interact.poll() {
+            p_interact.kill().unwrap();
+            println!("timeout");
+            if !quiet {
+                println!("{}", read_lines_trim("err").join("\n"));
+            }
+            break;
+        }
+        if !p_interact.poll().unwrap().success() {
+            println!("failed");
+            if !quiet {
+                println!("{}", read_lines_trim("err").join("\n"));
+            }
+            break;
+        }
+
+        seed += 1;
+        case += 1;
+
+        print!("\r                                    \r");
     }
 }
 
@@ -943,6 +1073,8 @@ fn main() {
         stress_test(&args[1..].to_vec(), &params);
     } else if args[0] == "test" {
         run_tests(&args[1..].to_vec(), &params);
+    } else if args[0] == "interact" {
+        interact(&args[1..].to_vec(), &params);
     } else if args[0] == "parse" {
         parse(&args[1..].to_vec(), &params);
     } else if args[0] == "mk" {
