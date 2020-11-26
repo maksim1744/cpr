@@ -81,7 +81,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
                                     see it.
                 --easy              Specify command line for easy solution
                 --gen               Specify command line for generator
-                --check             Specify command line for checker
+                --checkf            Specify command line for checker
         "};
         print!("{}", s);
         return;
@@ -128,9 +128,9 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             }
             gen_str = args[i + 1].clone();
             i += 1;
-        } else if args[i] == "--check" {
+        } else if args[i] == "--checkf" {
             if i + 1 == args.len() {
-                eprintln!("You need to specify check filename after \"--check\"");
+                eprintln!("You need to specify check filename after \"--checkf\"");
                 std::process::exit(1);
             }
             check_str = args[i + 1].clone();
@@ -182,6 +182,16 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             let result = run_and_wait(&[&check_str], "inout", "ans");
             if !result.success() {
                 println!("X  [seed = {}]", seed);
+
+                if !quiet {
+                    println!("========== in  ==========");
+                    println!("{}", read_lines_trim("in").join("\n"));
+                    println!("========== out ==========");
+                    println!("{}", read_lines_trim("out").join("\n"));
+                    println!("========== ans ==========");
+                    println!("{}", read_lines_trim("ans").join("\n"));
+                }
+
                 break;
             }
             print!(".");
@@ -220,6 +230,8 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 -q, --quiet         Don't display failed test, just the verdict
                 -i [numbers]        Specify what tests to run. Numbers can be a string,
                                     such as \"1-5,8,9-20,7\" (no spaces, no quotes)
+                --check             Run checker on output insted of comparing with ans
+                --checkf            Specify command line for checker
         "};
         print!("{}", s);
         return;
@@ -232,6 +244,8 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let mut i = 0;
     let mut quiet = false;
+    let mut check = false;
+    let mut check_str = String::from("check");
 
     while i < args.len() {
         if args[i] == "-i" {
@@ -276,6 +290,15 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             i += 1;
         } else if args[i] == "-q" || args[i] == "--quiet" {
             quiet = true;
+        } else if args[i] == "--check" {
+            check = true;
+        } else if args[i] == "--checkf" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify check filename after \"--check\"");
+                std::process::exit(1);
+            }
+            check_str = args[i + 1].clone();
+            i += 1;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
             std::process::exit(1);
@@ -316,6 +339,29 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 println!("{}", read_lines_trim(&["out", &test.to_string()].concat()).join("\n"));
                 println!("========== err ==========");
                 println!("{}", read_lines_trim("err").join("\n"));
+            }
+        } else if check {
+            let inout = [fs::read_to_string(&["in", &test.to_string()].concat()).unwrap(), fs::read_to_string(&["out", &test.to_string()].concat()).unwrap()].concat();
+            fs::File::create(&["inout", &test.to_string()].concat()).unwrap().write(inout.as_bytes()).unwrap();
+
+            let result = run_and_wait(&[&check_str], &["inout", &test.to_string()].concat(), &["ans", &test.to_string()].concat());
+            if !result.success() {
+                stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+                writeln!(&mut stdout, "failed").unwrap();
+                stdout.set_color(&ColorSpec::new()).unwrap();
+
+                if !quiet {
+                    println!("========== in  ==========");
+                    println!("{}", read_lines_trim(&["in", &test.to_string()].concat()).join("\n"));
+                    println!("========== out ==========");
+                    println!("{}", read_lines_trim(&["out", &test.to_string()].concat()).join("\n"));
+                    println!("========== ans ==========");
+                    println!("{}", read_lines_trim(&["ans", &test.to_string()].concat()).join("\n"));
+                }
+            } else {
+                stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green))).unwrap();
+                writeln!(&mut stdout, "OK").unwrap();
+                stdout.set_color(&ColorSpec::new()).unwrap();
             }
         } else if !Path::new(&["ans", &test.to_string()].concat()).exists() {
             stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
