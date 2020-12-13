@@ -83,6 +83,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
                 --easy              Specify command line for easy solution
                 --gen               Specify command line for generator
                 --checkf            Specify command line for checker
+                --eps, -e           Specify epsilon for comparison
         "};
         print!("{}", s);
         return;
@@ -96,6 +97,8 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut easy_str = String::from("easy");
     let mut gen_str = String::from("gen");
     let mut check_str = String::from("check");
+
+    let mut epsilon: Option<f64> = None;
 
     while i < args.len() {
         if args[i] == "-s" {
@@ -135,6 +138,13 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
                 std::process::exit(1);
             }
             check_str = args[i + 1].clone();
+            i += 1;
+        } else if args[i] == "-e" || args[i] == "--eps" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify check epsilon after \"{}\"", args[i]);
+                std::process::exit(1);
+            }
+            epsilon = Some(args[i + 1].parse().unwrap());
             i += 1;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
@@ -199,7 +209,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             io::stdout().flush().unwrap();
         }
 
-        if !check && !compare_output("out", "ans") {
+        if !check && !compare_output("out", "ans", epsilon) {
             println!("   failed   [seed = {}]", seed);
             if !quiet {
                 println!("========== in  ==========");
@@ -233,6 +243,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                                     such as \"1-5,8,9-20,7\" (no spaces, no quotes)
                 --check             Run checker on output insted of comparing with ans
                 --checkf            Specify command line for checker
+                -e, --eps           Specify epsilon for comparison
         "};
         print!("{}", s);
         return;
@@ -247,6 +258,9 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut quiet = false;
     let mut check = false;
     let mut check_str = String::from("check");
+
+    let mut has_epsilon = false;
+    let mut epsilon: f64 = 0.0;
 
     while i < args.len() {
         if args[i] == "-i" {
@@ -299,6 +313,14 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 std::process::exit(1);
             }
             check_str = args[i + 1].clone();
+            i += 1;
+        } else if args[i] == "-e" || args[i] == "--eps" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify epsilon filename after \"{}\"", args[i]);
+                std::process::exit(1);
+            }
+            has_epsilon = true;
+            epsilon = args[i + 1].parse().unwrap();
             i += 1;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
@@ -368,7 +390,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
             writeln!(&mut stdout, "?").unwrap();
             stdout.set_color(&ColorSpec::new()).unwrap();
-        } else if !compare_output(&["out", &test.to_string()].concat(), &["ans", &test.to_string()].concat()) {
+        } else if !compare_output(&["out", &test.to_string()].concat(), &["ans", &test.to_string()].concat(), if has_epsilon { Some(epsilon) } else { None }) {
             stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
             writeln!(&mut stdout, "failed").unwrap();
             stdout.set_color(&ColorSpec::new()).unwrap();
@@ -1152,8 +1174,43 @@ fn read_lines_trim(filename: &str) -> Vec<String> {
     res
 }
 
-fn compare_output(fout: &str, fans: &str) -> bool {
-    read_lines_trim(fout) == read_lines_trim(fans)
+fn compare_output(fout: &str, fans: &str, eps: Option<f64>) -> bool {
+    let fout_lines = read_lines_trim(fout);
+    let fans_lines = read_lines_trim(fans);
+
+    if eps.is_none() {
+        return fout_lines == fans_lines;
+    }
+    let eps = eps.unwrap();
+
+    if fout_lines.len() != fans_lines.len() {
+        return false;
+    }
+
+    for i in 0..fout_lines.len() {
+        let fout_line = fout_lines[i].split_whitespace().collect::<Vec<_>>();
+        let fans_line = fans_lines[i].split_whitespace().collect::<Vec<_>>();
+        if fout_line.len() != fans_line.len() {
+            return false;
+        }
+        for j in 0..fout_line.len() {
+            let fout_val = fout_line[j].parse::<f64>();
+            let fans_val = fans_line[j].parse::<f64>();
+            if fout_val.is_ok() != fans_val.is_ok() {
+                return false;
+            }
+            if !fout_val.is_ok() {
+                if fout_line[j] != fans_line[j] {
+                    return false;
+                }
+            } else {
+                if (fout_val.unwrap() - fans_val.unwrap()).abs() > eps {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 fn get_available_tests() -> Vec<i32> {
