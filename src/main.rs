@@ -32,6 +32,7 @@ enum ProblemSource {
     CodeChef(String, String),
     AtCoder(String, String),
     CodinGamePuzzle(String),
+    Cses(String),
 }
 
 fn help() {
@@ -364,7 +365,12 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 println!("{}", read_lines_trim("err").join("\n"));
             }
         } else if check {
-            let inout = [fs::read_to_string(&["in", &test.to_string()].concat()).unwrap(), fs::read_to_string(&["out", &test.to_string()].concat()).unwrap()].concat();
+            let mut in_string = fs::read_to_string(&["in", &test.to_string()].concat()).unwrap();
+            if in_string.len() != 0 && in_string.as_bytes()[in_string.len() - 1] != b'\n' {
+                in_string += "\n";
+            }
+            let out_string = fs::read_to_string(&["out", &test.to_string()].concat()).unwrap();
+            let inout = [in_string, out_string].concat();
             fs::File::create(&["inout", &test.to_string()].concat()).unwrap().write(inout.as_bytes()).unwrap();
 
             let result = run_and_wait(&[&check_str], &["inout", &test.to_string()].concat(), &["ans", &test.to_string()].concat());
@@ -718,6 +724,44 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         }
 
         println!("\nParsed {} tests from codingame", data.len());
+    } else if url.contains("cses.fi/problemset") {
+        let response = reqwest::blocking::get(&url).unwrap().text().unwrap();
+
+        let response = response.to_string().replace("<br />\r\n", "\n");
+        let response = response[response.find("<b id=\"example").unwrap()..].to_string();
+        let code_open = "<code>";
+        let code_close = "</code>";
+
+        let mut code_opens: Vec<usize> = Vec::new();
+        let mut code_closes: Vec<usize> = Vec::new();
+        for i in 0..response.len() {
+            if i + code_open.len() <= response.len() && &response[i..i+code_open.len()] == code_open {
+                code_opens.push(i + code_open.len());
+            } else if i + code_close.len() <= response.len() && &response[i..i+code_close.len()] == code_close {
+                code_closes.push(i);
+            }
+        }
+
+        let mut inputs: Vec<String> = Vec::new();
+        let mut answers: Vec<String> = Vec::new();
+
+        for i in 0..code_opens.len() {
+            if i % 2 == 0 {
+                inputs.push(response[code_opens[i]..code_closes[i]].to_string());
+            } else {
+                answers.push(response[code_opens[i]..code_closes[i]].to_string());
+            }
+        }
+
+        for i in 0..inputs.len() {
+            let test = first_available_test();
+            fs::File::create(&["in", &test.to_string()].concat()).unwrap().write(inputs[i].as_bytes()).unwrap();
+            if i < answers.len() {
+                fs::File::create(&["ans", &test.to_string()].concat()).unwrap().write(answers[i].as_bytes()).unwrap();
+            }
+        }
+
+        println!("Parsed {} tests from cses", inputs.len());
     } else {
         eprintln!("I don't know how to parse from this url :(");
         std::process::exit(1);
@@ -799,6 +843,10 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         folder.push_str("C/");
     } else if extension == "kt" {
         folder.push_str("Kotlin/");
+    } else if extension == "java" {
+        folder.push_str("Java/");
+    } else if extension == "go" {
+        folder.push_str("Go/");
     } else {
         folder.clear();
     }
@@ -1322,6 +1370,9 @@ fn get_problem_source() -> ProblemSource {
     } else if path.to_lowercase().contains("codingame") && path.to_lowercase().contains("puzzles") {
         let problem = parts[parts.len() - 1];
         return ProblemSource::CodinGamePuzzle(problem.to_string());
+    } else if path.to_lowercase().contains("cses") && path.to_lowercase().contains("problemset") {
+        let problem = parts[parts.len() - 1];
+        return ProblemSource::Cses(problem.to_string());
     }
     ProblemSource::None
 }
@@ -1340,6 +1391,8 @@ fn guess_url_from_path() -> Option<String> {
         return Some(format!("https://atcoder.jp/contests/{0}/tasks/{0}_{1}", contest, problem.to_lowercase()));
     } else if let ProblemSource::CodinGamePuzzle(problem) = problem_source {
         return Some(format!("https://www.codingame.com/ide/puzzle/{}", problem));
+    } else if let ProblemSource::Cses(problem) = problem_source {
+        return Some(format!("https://cses.fi/problemset/task/{}", problem));
     }
     None
 }
