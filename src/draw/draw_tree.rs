@@ -162,13 +162,11 @@ impl DrawingWidget {
 
         text_size.width += text_size.height / 2.0;
 
-        let rect = Rect::from_center_size(pos, text_size);
-        ctx.fill(rect, &BACKGROUND);
         let rect = RoundedRect::from_rect(Rect::from_center_size(pos,
                     text_size),
                     RECT_RADIUS * self.scale);
+        ctx.fill(rect, &BACKGROUND);
         ctx.stroke(rect, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale / 2.0);
-
 
         ctx.draw_text(&layout, text_pos);
     }
