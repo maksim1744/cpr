@@ -499,7 +499,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         let s = indoc! {"
             Usage: cpr draw tree [flags]
 
-            Draws points
+            Draws a tree
 
             Flags:
                 --help                 Display this message

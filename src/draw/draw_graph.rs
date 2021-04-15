@@ -464,7 +464,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         let s = indoc! {"
             Usage: cpr draw graph [flags]
 
-            Draws points
+            Draws a graph
 
             Flags:
                 --help                 Display this message

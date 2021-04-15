@@ -566,8 +566,8 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         let s = indoc! {"
             Usage: cpr parse [url] [flags]
 
-            Parses samples from url. If not specified, then uses url from file \"settings\".
-            If there is not url, then takes url from file \"settings\" in the parent folder
+            Parses samples from url. If not specified, then uses url from file \"params\".
+            If there is no url, then takes url from file \"params\" in the parent folder
             and adds \"/[current_folder]\" to it.
 
             Flags:
@@ -1013,6 +1013,9 @@ fn submit(args: &Vec<String>, _params: &HashMap<String, String>) {
         ];
 
         client.post(&format!("https://codeforces.com/contest/{}/submit?csrf_token={}", contest, csrf)).form(&form).send().unwrap();
+    } else {
+        eprintln!("Can submit only on codeforces");
+        std::process::exit(1);
     }
 }
 
@@ -1021,14 +1024,15 @@ fn make_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         let s = indoc! {"
             Usage: cpr mktest [index] [flags]
 
-            Creates test from input. Split input and answer with `, answer can be empty.
-            Input and answer will be written to \"in[index]\" and \"ans[index]\". If index
-            is not specified, it will be chosen as the least number such that \"in[index]\"
-            does not exist/
+            Creates test from input. Split input and answer with ` (on the new line),
+            answer can be empty. Input and answer will be written to \"in[index]\" and
+            \"ans[index]\". If index is not specified, it will be chosen as the least
+            number such that \"in[index]\" does not exist.
 
             Flags:
                 --help              Display this message
-                -0                  Copy \"in\", \"ans\" to the new test
+                -0                  Copy \"in\", \"ans\" to the new test instead of reading
+                                    from stdin
         "};
         print!("{}", s);
         return;
