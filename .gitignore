@@ -1,4 +1,5 @@
 /target
-/demo
+/demo/*
 in*
 todo
+!/demo/demo.gif
