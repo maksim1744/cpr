@@ -23,8 +23,12 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 mod draw;
 
 const LOCAL_PARAMS_NAME: &str = "params";
+
 const SETTINGS_FILE: &str = "C:/Users/magor/AppData/Local/cp_rust/settings.json";
 const SETTINGS_FILE_BASH: &str = "/mnt/c/Users/magor/AppData/Local/cp_rust/settings.json";
+const TEMPLATE_PATH: &str = "C:/Users/magor/AppData/Roaming/Sublime Text 3/Packages/User/Snippets/";
+
+const OPEN_FILE_WITH: &str = "subl";
 
 enum ProblemSource {
     None,
@@ -48,7 +52,8 @@ fn help() {
             interact            Connects main.exe and interact.exe to test interactive problems
             mk                  Make file, write template to it and open it
             mktest              Make test case to test your solution
-            parse               Parse samples from url (now only codeforces, atcoder, codechef)
+            parse               Parse samples from url (now only codeforces, atcoder,
+                                codechef (sometimes works), cses, codingame)
             stress              Run your solution on multiple generated tests to check it
             submit              Submits solution to OJ (now only codeforces)
             test                Run your solutions on given tests in files like \"in123\"
@@ -81,10 +86,10 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
                                     check is successful and not 0 otherwise. Merged input
                                     and output will be written to \"inout\", where you can
                                     see it.
-                --easy              Specify command line for easy solution
-                --gen               Specify command line for generator
-                --checkf            Specify command line for checker
-                --eps, -e           Specify epsilon for comparison
+                --easy [cmd]        Specify command line for easy solution
+                --gen [cmd]         Specify command line for generator
+                --checkf [cmd]      Specify command line for checker
+                --eps, -e [val]     Specify epsilon for comparison
         "};
         print!("{}", s);
         return;
@@ -244,7 +249,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                                     such as \"1-5,8,9-20,7\" (no spaces, no quotes)
                 --check             Run checker on output insted of comparing with ans
                 --checkf            Specify command line for checker
-                -e, --eps           Specify epsilon for comparison
+                -e, --eps [value]   Specify epsilon for comparison
         "};
         print!("{}", s);
         return;
@@ -490,7 +495,6 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
         let mut p_main = match Popen::create(&filename_vec[..], PopenConfig {
             stdin: Redirection::Pipe,
             stdout: Redirection::Pipe,
-            // stderr: Redirection::File(fs::File::create("errm").unwrap()),
             ..Default::default()
         }) {
             Ok(x) => x,
@@ -578,10 +582,9 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         let response = reqwest::blocking::get(&url).unwrap().text().unwrap();
         let soup = Soup::new(&response);
 
-        // let inputs: Vec<_> = soup.tag("div").class("input").find_all().map(|x| x.tag("pre").find().unwrap().text().to_string()).collect();
         let inputs: Vec<_> = soup.tag("div").class("input").find_all().map(|x| x.tag("pre").find().unwrap().display()).collect();
         let inputs: Vec<_> = inputs.iter().map(|x| x.replace("<br>", "").replace("</br>", "\n").replace("<pre>", "").replace("</pre>", "")).collect();
-        // let answers: Vec<_> = soup.tag("div").class("output").find_all().map(|x| x.tag("pre").find().unwrap().text().to_string()).collect();
+
         let answers: Vec<_> = soup.tag("div").class("output").find_all().map(|x| x.tag("pre").find().unwrap().display()).collect();
         let answers: Vec<_> = answers.iter().map(|x| x.replace("<br>", "").replace("</br>", "\n").replace("<pre>", "").replace("</pre>", "")).collect();
 
@@ -778,7 +781,7 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
 
             Flags:
                 --help              Display this message
-                -t, -g, -gcj        Use template \"tstart\", \"gstart\" or \"gcj\"
+                -t, -gen, -gcj      Use template \"tstart\", \"gstart\" or \"gcj\"
                                     respectively. \"start\" is chosen by default.
         "};
         print!("{}", s);
@@ -834,7 +837,7 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
 
     let mut file = fs::File::create(&full_name).unwrap();
 
-    let mut folder = String::from("C:/Users/magor/AppData/Roaming/Sublime Text 3/Packages/User/Snippets/");
+    let mut folder = String::from(TEMPLATE_PATH);
     if extension == "cpp" {
         folder.push_str("C++/");
     } else if extension == "rs" {
@@ -862,7 +865,7 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         match template_type {
             TemplateType::Tstart => if available_templates.contains(&"tstart".to_string()) { template = "tstart"; },
             TemplateType::Gstart => if available_templates.contains(&"gstart".to_string()) { template = "gstart"; },
-            TemplateType::Gcj => if available_templates.contains(&"gcj".to_string()) { template = "gcj"; },
+            TemplateType::Gcj    => if available_templates.contains(&"gcj"   .to_string()) { template = "gcj";    },
             _ => (),
         }
 
@@ -895,7 +898,7 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         add_param("main", full_name, params);
     }
 
-    std::process::Command::new("subl").arg(format!("{}:{}:{}", full_name, position.0, position.1)).output().unwrap();
+    std::process::Command::new(OPEN_FILE_WITH).arg(format!("{}:{}:{}", full_name, position.0, position.1)).output().unwrap();
 }
 
 fn init_task(args: &Vec<String>, params: &mut HashMap<String, String>) {
@@ -1132,7 +1135,6 @@ fn measure_time(args: &Vec<String>, _params: &HashMap<String, String>) {
 
 
 fn main() {
-    // let now = Instant::now();
     let args: Vec<String> = env::args().collect::<Vec<String>>()[1..].to_vec();
 
     let mut params = get_params();
