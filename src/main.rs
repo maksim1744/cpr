@@ -29,6 +29,9 @@ const SETTINGS_FILE_BASH: &str = "/mnt/c/Users/magor/AppData/Local/cp_rust/setti
 const TEMPLATE_PATH: &str = "C:/Users/magor/AppData/Roaming/Sublime Text 3/Packages/User/Snippets/";
 
 const OPEN_FILE_WITH: &str = "subl";
+const DEFAULT_FILE_NAME: &str = "main";
+const DEFAULT_FILE_EXTENSION: &str = "cpp";
+const DEFAULT_TIMEOUT: f64 = 5;
 
 enum ProblemSource {
     None,
@@ -96,7 +99,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         return;
     }
 
-    let mut filename = get_main_filename();
+    let mut filename = String::from(DEFAULT_FILE_NAME);
     let mut seed: i32 = 0;
     let mut i = 0;
     let mut quiet = false;
@@ -104,7 +107,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut easy_str = String::from("easy");
     let mut gen_str = String::from("gen");
     let mut check_str = String::from("check");
-    let mut timeout = 5_f64;
+    let mut timeout = DEFAULT_TIMEOUT;
 
     let mut epsilon: Option<f64> = None;
 
@@ -261,7 +264,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
         return;
     }
 
-    let mut filename = get_main_filename();
+    let mut filename = String::from(DEFAULT_FILE_NAME);
 
     let mut tests = get_available_tests();
     tests.sort();
@@ -274,7 +277,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut has_epsilon = false;
     let mut epsilon: f64 = 0.0;
 
-    let mut timeout = 5_f64;
+    let mut timeout = DEFAULT_TIMEOUT;
 
     while i < args.len() {
         if args[i] == "-i" {
@@ -449,7 +452,7 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let mut seed = 0;
     let mut quiet = false;
-    let mut filename = String::from("main");
+    let mut filename = String::from(DEFAULT_FILE_NAME);
     let mut interact = String::from("interact");
 
     let mut i = 0;
@@ -798,8 +801,8 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         print!("{}", s);
         return;
     }
-    let mut filename = String::from("main");
-    let mut extension = String::from("cpp");
+    let mut filename = String::from(DEFAULT_FILE_NAME);
+    let mut extension = String::from(DEFAULT_FILE_EXTENSION);
 
     let mut i = 0;
 
@@ -931,7 +934,7 @@ fn init_task(args: &Vec<String>, params: &mut HashMap<String, String>) {
 }
 
 fn submit(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "__help" {
+    if !args.is_empty() && args[0] == "--help" {
         let s = indoc! {"
             Usage: cp submit [filename]
 
@@ -1282,10 +1285,6 @@ fn get_available_tests() -> Vec<i32> {
     let mut v: Vec<_> = fs::read_dir(".").unwrap().map(|x| x.unwrap().path().file_name().unwrap().to_str().unwrap().to_string()).collect();
     v.retain(|x| x.starts_with("in") && match x[2..].parse::<i32>() { Ok(_) => true, Err(_) => false });
     v.iter().map(|x| x[2..].parse().unwrap()).collect()
-}
-
-fn get_main_filename() -> String {
-    String::from("main")
 }
 
 fn get_params() -> HashMap<String, String> {
