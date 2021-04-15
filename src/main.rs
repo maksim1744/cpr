@@ -90,6 +90,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
                 --gen [cmd]         Specify command line for generator
                 --checkf [cmd]      Specify command line for checker
                 --eps, -e [val]     Specify epsilon for comparison
+                -t, --timeout [t]   Specify timeout in seconds (may be float)
         "};
         print!("{}", s);
         return;
@@ -103,6 +104,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut easy_str = String::from("easy");
     let mut gen_str = String::from("gen");
     let mut check_str = String::from("check");
+    let mut timeout = 5_f64;
 
     let mut epsilon: Option<f64> = None;
 
@@ -152,6 +154,9 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             }
             epsilon = Some(args[i + 1].parse().unwrap());
             i += 1;
+        } else if args[i] == "-t" || args[i] == "--timeout" {
+            timeout = args[i + 1].parse().unwrap();
+            i += 1;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
             std::process::exit(1);
@@ -166,7 +171,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     loop {
         print!("Case #{}:  ", case);
         io::stdout().flush().unwrap();
-        let result = run_and_wait(&[&gen_str, &seed.to_string()], "", "in");
+        let result = run_and_wait(&[&gen_str, &seed.to_string()], "", "in", timeout);
         if !result.success() {
             println!("X  [seed = {}]", seed);
             break;
@@ -175,7 +180,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         io::stdout().flush().unwrap();
 
         if !check {
-            let result = run_and_wait(&[&easy_str], "in", "ans");
+            let result = run_and_wait(&[&easy_str], "in", "ans", timeout);
             if !result.success() {
                 println!("X  [seed = {}]", seed);
                 break;
@@ -184,7 +189,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             io::stdout().flush().unwrap();
         }
 
-        let result = run_and_wait(&[&filename], "in", "out");
+        let result = run_and_wait(&[&filename], "in", "out", timeout);
         if !result.success() {
             println!("X  [seed = {}]", seed);
             break;
@@ -196,7 +201,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             let inout = [fs::read_to_string("in").unwrap(), fs::read_to_string("out").unwrap()].concat();
             fs::File::create("inout").unwrap().write(inout.as_bytes()).unwrap();
 
-            let result = run_and_wait(&[&check_str], "inout", "ans");
+            let result = run_and_wait(&[&check_str], "inout", "ans", timeout);
             if !result.success() {
                 println!("X  [seed = {}]", seed);
 
@@ -250,6 +255,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 --check             Run checker on output insted of comparing with ans
                 --checkf            Specify command line for checker
                 -e, --eps [value]   Specify epsilon for comparison
+                -t, --timeout [t]   Specify timeout in seconds (may be float)
         "};
         print!("{}", s);
         return;
@@ -267,6 +273,8 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let mut has_epsilon = false;
     let mut epsilon: f64 = 0.0;
+
+    let mut timeout = 5_f64;
 
     while i < args.len() {
         if args[i] == "-i" {
@@ -328,6 +336,9 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             has_epsilon = true;
             epsilon = args[i + 1].parse().unwrap();
             i += 1;
+        } else if args[i] == "-t" || args[i] == "--timeout" {
+            timeout = args[i + 1].parse().unwrap();
+            i += 1;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
             std::process::exit(1);
@@ -342,7 +353,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
         print!("Case #{:<6}", format!("{}:", test));
         io::stdout().flush().unwrap();
 
-        let result = run_and_wait(&[&filename], &["in", &test.to_string()].concat(), &["out", &test.to_string()].concat());
+        let result = run_and_wait(&[&filename], &["in", &test.to_string()].concat(), &["out", &test.to_string()].concat(), timeout);
         let duration = now.elapsed().as_millis();
         print!("{:>5} ms   ", duration);
 
@@ -378,7 +389,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             let inout = [in_string, out_string].concat();
             fs::File::create(&["inout", &test.to_string()].concat()).unwrap().write(inout.as_bytes()).unwrap();
 
-            let result = run_and_wait(&[&check_str], &["inout", &test.to_string()].concat(), &["ans", &test.to_string()].concat());
+            let result = run_and_wait(&[&check_str], &["inout", &test.to_string()].concat(), &["ans", &test.to_string()].concat(), timeout);
             if !result.success() {
                 stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
                 writeln!(&mut stdout, "failed").unwrap();
@@ -1175,7 +1186,7 @@ fn main() {
 
 // *********************************** internal ***********************************
 
-fn run_and_wait(filename: &[&str], fin: &str, fout: &str) -> ExitStatus {
+fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: f64) -> ExitStatus {
     let stdin = match fin {
         "" => Redirection::Pipe,
         name => Redirection::File(fs::File::open(name).unwrap())
@@ -1207,7 +1218,7 @@ fn run_and_wait(filename: &[&str], fin: &str, fout: &str) -> ExitStatus {
         }
     };
 
-    p.wait_timeout(std::time::Duration::from_secs(5)).unwrap();
+    p.wait_timeout(std::time::Duration::from_millis((timeout * 1000.0).round() as u64)).unwrap();
 
     if let None = p.poll() {
         p.terminate().unwrap();
