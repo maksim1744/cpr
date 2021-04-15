@@ -31,7 +31,7 @@ const TEMPLATE_PATH: &str = "C:/Users/magor/AppData/Roaming/Sublime Text 3/Packa
 const OPEN_FILE_WITH: &str = "subl";
 const DEFAULT_FILE_NAME: &str = "main";
 const DEFAULT_FILE_EXTENSION: &str = "cpp";
-const DEFAULT_TIMEOUT: f64 = 5;
+const DEFAULT_TIMEOUT: f64 = 5.;
 
 enum ProblemSource {
     None,
