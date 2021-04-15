@@ -12,16 +12,20 @@ use druid::{
     Size, AppLauncher, WindowDesc, Data, Lens, Color, Rect, Point, WidgetExt, MouseButton,
     Command, Target, Selector
 };
-use druid::kurbo::{Circle, Line, RoundedRect, BezPath};
+use druid::kurbo::{Circle, Line, RoundedRect, BezPath, Vec2};
 use druid::piet::{FontFamily, Text, TextLayoutBuilder, TextLayout};
 
 const PADDING: f64 = 8.0;
 
-// for tree nodes
+// for graph nodes
 const RADIUS: f64 = 1.0;
 const RECT_RADIUS: f64 = 0.2;
 const WIDTH: f64 = 0.05;
+
+// for edges
 const ARC_OFFSET: f64 = 1.5;
+const ARROW_LEN: f64 = 0.6;
+const ARROW_ANGLE: f64 = 0.35;
 
 const BACKGROUND: Color = Color::rgb8(0x30 as u8, 0x30 as u8, 0x30 as u8);
 
@@ -33,6 +37,8 @@ struct AppData {
     start_from_1: bool,
     draw_arcs: bool,
     edge_info: Rc<Vec<((usize, usize), String)>>,
+    is_edge_info: bool,
+    directed: bool,
 }
 
 struct DrawingWidget {
@@ -144,7 +150,7 @@ impl DrawingWidget {
         let text = ctx.text();
         let layout = text
             .new_text_layout(s.clone())
-            .font(FontFamily::MONOSPACE, 0.5 * self.scale)
+            .font(FontFamily::MONOSPACE, 0.65 * self.scale)
             .text_color(Color::rgb8(0xff, 0xff, 0xff))
             // .alignment(TextAlignment::Start)
             .build()
@@ -185,7 +191,7 @@ impl DrawingWidget {
 
         let n = g.len();
 
-        let rad = RADIUS * n as f64;
+        let rad = RADIUS * n as f64 * 2.;
 
         for i in 0..n {
             let angle = std::f64::consts::PI * 2. * (1_f64 / n as f64 * i as f64 + 0.5);
@@ -310,70 +316,141 @@ impl Widget<AppData> for DrawingWidget {
         if self.first_time {
             self.refresh(ctx, data);
         }
+        for ((ii, jj), s) in data.edge_info.iter() {
+            let i = *ii;
+            let j = *jj;
 
-        for i in 0..data.g.len() {
-            for &j in data.g[i].iter() {
-                if data.draw_arcs {
-                    let dist = self.pos[i].distance(self.pos[j]);
-                    let a = ARC_OFFSET.min(dist * 0.4);
-                    let h = (dist * dist / 4. - a * a) / 2. / a;
-                    let mid = self.pos[i].midpoint(self.pos[j]);
+            let label_pos: Point;
+            let arrow_pos: Point;
 
-                    let mut ort = Point::new(-(self.pos[j].y - self.pos[i].y), self.pos[j].x - self.pos[i].x);
-                    let lnd = ort.distance(Point::new(0., 0.));
-                    ort.x /= lnd;
-                    ort.y /= lnd;
-
-                    let h2 = (h + a) * (h + a) / h - h;
-                    ort.x *= -h2;
-                    ort.y *= -h2;
-                    let center2 = Point::new(ort.x + mid.x, ort.y + mid.y);
-
-                    let mut needln = 0.7_f64;
-                    if dist < 10. {
-                        needln = 0.1_f64 + 0.6_f64 * dist / 10.;
-                    }
-
-                    let mut v1 = Point::new(center2.x - self.pos[i].x, center2.y - self.pos[i].y);
-                    v1.x *= needln; v1.y *= needln;
-
-                    let mut v2 = Point::new(center2.x - self.pos[j].x, center2.y - self.pos[j].y);
-                    v2.x *= needln; v2.y *= needln;
-
-                    v1 = Point::new(v1.x + self.pos[i].x, v1.y + self.pos[i].y);
-                    v2 = Point::new(v2.x + self.pos[j].x, v2.y + self.pos[j].y);
-
-                    let mut path = BezPath::new();
-                    path.move_to(self.transform(self.pos[i]));
-                    path.curve_to(self.transform(v1), self.transform(v2), self.transform(self.pos[j]));
-                    ctx.stroke(path,
-                        &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale);
-                } else {
-                    ctx.stroke(Line::new(
-                        self.transform(Point::new(self.pos[i].x, self.pos[i].y)),
-                        self.transform(Point::new(self.pos[j].x, self.pos[j].y))),
-                        &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale);
-                }
-            }
-        }
-
-        for ((i, j), s) in data.edge_info.iter() {
-            let pos: Point;
             if data.draw_arcs {
-                let mid = self.pos[*i].midpoint(self.pos[*j]);
+                let dist = self.pos[i].distance(self.pos[j]);
+                let a = ARC_OFFSET.min(dist * 0.4);
+                let h = (dist * dist / 4. - a * a) / 2. / a;
+                let mid = self.pos[i].midpoint(self.pos[j]);
 
-                let mut ort = Point::new(-(self.pos[*j].y - self.pos[*i].y), self.pos[*j].x - self.pos[*i].x);
+                let mut ort = Point::new(-(self.pos[j].y - self.pos[i].y), self.pos[j].x - self.pos[i].x);
                 let lnd = ort.distance(Point::new(0., 0.));
                 ort.x /= lnd;
                 ort.y /= lnd;
 
-                ort.x *= -ARC_OFFSET;
-                ort.y *= -ARC_OFFSET;
-                pos = Point::new(mid.x + ort.x, mid.y + ort.y);
+                label_pos = Point::new(mid.x + ort.x * -a, mid.y + ort.y * -a);
+
+                let h2 = (h + a) * (h + a) / h - h;
+                ort.x *= -h2;
+                ort.y *= -h2;
+                let center2 = Point::new(ort.x + mid.x, ort.y + mid.y);
+
+                let mut v1 = Point::new(center2.x - self.pos[i].x, center2.y - self.pos[i].y);
+                let ln1 = v1.distance(Point::new(0., 0.));
+                v1.x /= ln1; v1.y /= ln1;
+                let mut ab = Point::new(self.pos[i].x - self.pos[j].x, self.pos[i].y - self.pos[j].y);
+                let lab = ab.distance(Point::new(0., 0.));
+                ab.x /= lab; ab.y /= lab;
+                let lnx = (ab.x * v1.x + ab.y * v1.y).abs();
+                let lny = (1_f64 - lnx * lnx).sqrt();
+                let needln = a * 4. / 3. / lny;
+                v1.x *= needln; v1.y *= needln;
+
+                let mut v2 = Point::new(center2.x - self.pos[j].x, center2.y - self.pos[j].y);
+                let ln2 = v2.distance(Point::new(0., 0.));
+                v2.x /= ln2; v2.y /= ln2;
+                v2.x *= needln; v2.y *= needln;
+
+                v1 = Point::new(v1.x + self.pos[i].x, v1.y + self.pos[i].y);
+                v2 = Point::new(v2.x + self.pos[j].x, v2.y + self.pos[j].y);
+
+                let mut path = BezPath::new();
+                path.move_to(self.transform(self.pos[i]));
+                path.curve_to(self.transform(v1), self.transform(v2), self.transform(self.pos[j]));
+                ctx.stroke(path,
+                    &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale);
+
+                let p = vec![self.pos[i].to_vec2(), v1.to_vec2(), v2.to_vec2(), self.pos[j].to_vec2()];
+
+                let getp = |t: f64| {
+                    p[0] * (1. - t).powi(3) + p[1] * (1. - t).powi(2) * t * 3. + p[2] * 3. * t.powi(2) * (1. - t) + p[3] * t.powi(3)
+                };
+
+                {
+                    let mut l = 0_f64;
+                    let mut r = 1_f64;
+                    for _it in 0..50 {
+                        let c = (l + r) / 2.;
+                        if self.inside_node(&data, j, self.transform(getp(c).to_point())) {
+                            r = c;
+                        } else {
+                            l = c;
+                        }
+                    }
+                    arrow_pos = getp(r).to_point();
+                }
             } else {
-                pos = self.pos[*i].midpoint(self.pos[*j]);
+                ctx.stroke(Line::new(
+                    self.transform(Point::new(self.pos[i].x, self.pos[i].y)),
+                    self.transform(Point::new(self.pos[j].x, self.pos[j].y))),
+                    &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale);
+                label_pos = self.pos[i].midpoint(self.pos[j]);
+                let mut ab = Point::new(self.pos[i].x - self.pos[j].x, self.pos[i].y - self.pos[j].y);
+                let lab = ab.distance(Point::new(0., 0.));
+                ab.x /= lab; ab.y /= lab;
+                ab.x *= RADIUS; ab.y *= RADIUS;
+
+                let getp = |t: f64| {
+                    Vec2::new(self.pos[i].x + (self.pos[j].x - self.pos[i].x) * t, self.pos[i].y + (self.pos[j].y - self.pos[i].y) * t)
+                };
+
+                {
+                    let mut l = 0_f64;
+                    let mut r = 1_f64;
+                    for _it in 0..50 {
+                        let c = (l + r) / 2.;
+                        if self.inside_node(&data, j, self.transform(getp(c).to_point())) {
+                            r = c;
+                        } else {
+                            l = c;
+                        }
+                    }
+                    arrow_pos = getp(r).to_point();
+                }
             }
-            self.draw_edge_info(ctx, data, env, self.transform(pos), s);
+
+            if data.is_edge_info {
+                self.draw_edge_info(ctx, data, env, self.transform(label_pos), s);
+            }
+
+            if data.directed {
+                let ang = if data.draw_arcs {
+                    let a1 = Vec2::new(label_pos.x - arrow_pos.x, label_pos.y - arrow_pos.y).normalize().atan2();
+                    let a2 = Vec2::new(arrow_pos.x - self.pos[j].x, arrow_pos.y - self.pos[j].y).normalize().atan2();
+                    let res1 = (a1 + a2) / 2.;
+                    let mut res2 = (a1 + a2) / 2. + std::f64::consts::PI;
+                    if res2 >= std::f64::consts::PI * 2. {
+                        res2 -= std::f64::consts::PI;
+                    }
+                    let dist1 = (res1 - a1).abs().min(std::f64::consts::PI * 2. - (res1 - a1).abs());
+                    let dist2 = (res2 - a1).abs().min(std::f64::consts::PI * 2. - (res2 - a1).abs());
+                    if dist1 < dist2 {
+                        res1
+                    } else {
+                        res2
+                    }
+                } else {
+                    Vec2::new(arrow_pos.x - self.pos[j].x, arrow_pos.y - self.pos[j].y).normalize().atan2()
+                };
+
+                let end1 = (arrow_pos.to_vec2() + Vec2::from_angle(ang + ARROW_ANGLE) * ARROW_LEN).to_point();
+                let end2 = (arrow_pos.to_vec2() + Vec2::from_angle(ang - ARROW_ANGLE) * ARROW_LEN).to_point();
+
+                let mut path = BezPath::new();
+                path.move_to(self.transform(arrow_pos));
+                path.line_to(self.transform(end2));
+                path.line_to(self.transform(end1));
+                path.close_path();
+
+                ctx.fill(&path, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8));
+                ctx.stroke(&path, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8),  WIDTH * self.scale);
+            }
         }
 
         for i in 0..data.g.len() {
@@ -400,6 +477,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
                                        corresponding edge)
                 --arcs                 Draw edges as arcs (may be useful with directed edges
                                        in both sides)
+                --directed             Directed graph (draw arrows)
         "};
         print!("{}", s);
         return;
@@ -412,11 +490,12 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         start_from_1: false,
         draw_arcs: false,
         edge_info: Rc::new(Vec::new()),
+        is_edge_info: false,
+        directed: false,
     };
 
     let mut is_vertex_info = false;
     let mut vertex_info_lines = false;
-    let mut is_edge_info = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -429,9 +508,11 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
                 vertex_info_lines = true;
             }
         } else if args[i] == "--edge-info" || args[i] == "-ei" {
-            is_edge_info = true;
+            app_data.is_edge_info = true;
         } else if args[i] == "--arcs" {
             app_data.draw_arcs = true;
+        } else if args[i] == "--directed" {
+            app_data.directed = true;
         } else {
             eprintln!("Unknown option \"{}\"", args[i]);
             std::process::exit(1);
@@ -474,15 +555,11 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         let mut v = iter.next().unwrap().parse::<usize>().unwrap();
         u -= 1;
         v -= 1;
-        if is_edge_info {
-            edge_info.push(((u, v), iter.collect::<Vec<_>>().join(" ")));
-        }
+        edge_info.push(((u, v), if app_data.is_edge_info { iter.collect::<Vec<_>>().join(" ") } else { String::new() }));
         g[u].push(v);
     }
-    if is_edge_info {
-        app_data.edge_info = Rc::new(edge_info);
-    }
 
+    app_data.edge_info = Rc::new(edge_info);
     app_data.g = Rc::new(g);
 
     let window = WindowDesc::new(make_layout)
@@ -519,6 +596,10 @@ fn make_layout() -> impl Widget<AppData> {
         .with_child(
             Flex::column()
                 .with_child(Checkbox::new("Start from 1").lens(AppData::start_from_1))
+                .with_spacer(PADDING)
+                .with_child(Checkbox::new("Draw arcs").lens(AppData::draw_arcs))
+                .with_spacer(PADDING)
+                .with_child(Checkbox::new("Directed").lens(AppData::directed))
                 .with_spacer(PADDING)
                 .with_child(Button::new("Refresh").on_click(move |ctx: &mut EventCtx, _data, _env| {
                     ctx.submit_command(Command::new(Selector::new("refresh"), (), Target::Widget(drawing_widget_id)));
