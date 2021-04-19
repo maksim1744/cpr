@@ -60,6 +60,7 @@ fn help() {
             stress              Run your solution on multiple generated tests to check it
             submit              Submits solution to OJ (now only codeforces)
             test                Run your solutions on given tests in files like \"in123\"
+            time                Measures execution time of a program
     "};
     print!("{}", s);
 }
