@@ -2,6 +2,11 @@
 
 _Disclaimer: I did this for myself, so there are some constants in the code which you probably would like to change before building (mainly on top of [main.rs](src/main.rs)). One day I will move most of them to some settings file. Maybe._
 
+## Demo
+![demo](demo/demo.gif)
+
+_First execution of any `*.exe` is always slow, that's why 1472 ms_
+
 ## Installation
 First install rust from [here](https://www.rust-lang.org/learn/get-started).
 ```
