@@ -58,6 +58,7 @@ fn help() {
             parse               Parse samples from url (now only codeforces, atcoder,
                                 codechef (sometimes works), cses, codingame)
             stress              Run your solution on multiple generated tests to check it
+            istress             Similar to stress, but combines all source files into one
             submit              Submits solution to OJ (now only codeforces)
             test                Run your solutions on given tests in files like \"in123\"
             time                Measures execution time of a program
@@ -175,7 +176,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     loop {
         print!("Case #{}:  ", case);
         io::stdout().flush().unwrap();
-        let result = run_and_wait(&[&gen_str, &seed.to_string()], "", "in", timeout);
+        let result = run_and_wait(&[&gen_str, &seed.to_string()], "", "in", Some(timeout));
         if !result.success() {
             println!("X  [seed = {}]", seed);
             break;
@@ -184,7 +185,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         io::stdout().flush().unwrap();
 
         if !check {
-            let result = run_and_wait(&[&easy_str], "in", "ans", timeout);
+            let result = run_and_wait(&[&easy_str], "in", "ans", Some(timeout));
             if !result.success() {
                 println!("X  [seed = {}]", seed);
                 break;
@@ -193,7 +194,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             io::stdout().flush().unwrap();
         }
 
-        let result = run_and_wait(&[&filename], "in", "out", timeout);
+        let result = run_and_wait(&[&filename], "in", "out", Some(timeout));
         if !result.success() {
             println!("X  [seed = {}]", seed);
             break;
@@ -205,7 +206,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             let inout = [fs::read_to_string("in").unwrap(), fs::read_to_string("out").unwrap()].concat();
             fs::File::create("inout").unwrap().write(inout.as_bytes()).unwrap();
 
-            let result = run_and_wait(&[&check_str], "inout", "ans", timeout);
+            let result = run_and_wait(&[&check_str], "inout", "ans", Some(timeout));
             if !result.success() {
                 println!("X  [seed = {}]", seed);
 
@@ -244,6 +245,197 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     if !quiet {
         print!("{}", fs::read_to_string("err").unwrap());
     }
+}
+
+fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
+    if !args.is_empty() && args[0] == "--help" {
+        let s = indoc! {"
+            Usage: cpr istress [filename] [flags]
+
+            Combines \"main.cpp\", \"easy.cpp\" and \"gen.cpp\" into one file to run
+            stress tests. All programs have to read and write using stdin, stdout
+            using cin and cout. Saves test into \"in\", \"out\", \"ans\".
+
+            Flags:
+                --help              Display this message
+                -q, --quiet         Don't display anything, except number of current test
+                -s [seed]           Random seed for the first case. After each case it will
+                                    be increased by 1
+                --check             Run with \"check.cpp\" instead of \"easy.cpp\" to check
+                                    output, if different answers are possible. In that case,
+                                    programs are executed in the order \"gen\", 
+                                    \"[filename].exe\", \"check\". \"check.cpp\" have to
+                                    read input, then output of the program and return 0 if
+                                    check is successful and not 0 otherwise. Merged input
+                                    and output will be written to \"inout\", where you can
+                                    see it.
+                --easy [file]       Specify filename for easy solution
+                --gen [file]        Specify filename for generator
+                --checkf [file]     Specify filename for checker
+                --eps, -e [val]     Specify epsilon for comparison
+        "};
+        print!("{}", s);
+        return;
+    }
+
+    let mut filename = String::from(DEFAULT_FILE_NAME);
+    let mut seed: i32 = 0;
+    let mut i = 0;
+    let mut quiet = false;
+    let mut check = false;
+    let mut easy_name = String::from("easy");
+    let mut gen_name = String::from("gen");
+    let mut check_name = String::from("check");
+
+    let mut epsilon: Option<f64> = None;
+
+    while i < args.len() {
+        if args[i] == "-s" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify seed after \"-s\"");
+                std::process::exit(1);
+            }
+            seed = match args[i + 1].parse() {
+                Ok(x) => x,
+                Err(_) => {
+                    eprintln!("Can't parse integer seed after \"-s\"");
+                    std::process::exit(1)
+                }
+            };
+            i += 1;
+        } else if args[i] == "-q" || args[i] == "--quiet" {
+            quiet = true;
+        } else if args[i] == "--check" {
+            check = true;
+        } else if args[i] == "--easy" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify easy filename after \"--easy\"");
+                std::process::exit(1);
+            }
+            easy_name = args[i + 1].clone();
+            i += 1;
+        } else if args[i] == "--gen" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify gen filename after \"--gen\"");
+                std::process::exit(1);
+            }
+            gen_name = args[i + 1].clone();
+            i += 1;
+        } else if args[i] == "--checkf" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify check filename after \"--checkf\"");
+                std::process::exit(1);
+            }
+            check_name = args[i + 1].clone();
+            i += 1;
+        } else if args[i] == "-e" || args[i] == "--eps" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify check epsilon after \"{}\"", args[i]);
+                std::process::exit(1);
+            }
+            epsilon = Some(args[i + 1].parse().unwrap());
+            i += 1;
+        } else if args[i].starts_with("-") {
+            eprintln!("Unknown flag \"{}\"", args[i]);
+            std::process::exit(1);
+        } else {
+            filename = args[i].clone();
+        }
+        i += 1;
+    }
+
+    let mut exe_path = std::env::current_exe().unwrap();
+    exe_path.pop();
+    exe_path.pop();
+    exe_path.pop();
+    if check {
+        exe_path.push("stress_test_check_template.cpp");
+    } else {
+        exe_path.push("stress_test_template.cpp");
+    }
+    let exe_path = exe_path.to_str().unwrap();
+    let template = fs::read_to_string(exe_path).unwrap().trim().to_string();
+    let template = template.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
+
+    let mut result: Vec<String> = Vec::new();
+    let mut headers: Vec<String> = vec!["#include \"bits/stdc++.h\"".to_string(), "using namespace std;".to_string()];
+    for line in template.iter() {
+        if line.starts_with("//->settings") {
+            if let Some(eps) = epsilon {
+                result.push(["const double eps = ".to_string(), eps.to_string(), ";".to_string()].concat());
+                result.push("const bool use_eps = true;".to_string());
+            } else {
+                result.push("const double eps = 0;".to_string());
+                result.push("const bool use_eps = false;".to_string());
+            }
+            if quiet {
+                result.push("const bool quiet = true;".to_string());
+            } else {
+                result.push("const bool quiet = false;".to_string());
+            }
+            result.push(["const int start_seed = ".to_string(), seed.to_string(), ";".to_string()].concat());
+        } else if line.starts_with("//->") {
+            let name = &line[4..];
+            let file = match name {
+                "main" => filename.clone(),
+                "easy" => easy_name.clone(),
+                "gen" => gen_name.clone(),
+                "check" => check_name.clone(),
+                _ => {
+                    eprintln!("wrong template file");
+                    std::process::exit(1);
+                }
+            };
+
+            let lines = fs::read_to_string(&[file, ".cpp".to_string()].concat()).unwrap().trim().to_string();
+            let lines = lines.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
+
+            for line2 in lines.iter() {
+                if line2.starts_with("#include") {
+                    if !headers.contains(&line2.to_string()) {
+                        if !line2.ends_with("/print.cpp\"") {
+                            headers.push(line2.to_string().clone());
+                        }
+                    }
+                } else {
+                    result.push(line2.to_string().clone());
+                }
+            }
+        } else {
+            result.push(line.to_string().clone());
+        }
+    }
+
+    headers.extend(result);
+    let mut file = fs::File::create("cpr_tmp_file.cpp").unwrap();
+    file.write(&headers.join("\n").as_bytes()).unwrap();
+
+    print!("Compiling...");
+    io::stdout().flush().unwrap();
+
+    let mut p = Popen::create(&"g++ --std=c++17 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -Wl,-stack,1073741824 -IC:/MyPath/precompiled/O2"
+        .split_whitespace().collect::<Vec<_>>(),
+        PopenConfig {
+            ..Default::default()
+    }).unwrap();
+    p.wait().unwrap();
+    if let None = p.poll() {
+        p.terminate().unwrap();
+        return;
+    }
+    let result = p.poll().unwrap();
+
+    if !result.success() {
+        return;
+    }
+
+    print!("\r                                    ");
+    print!("\rStarting...");
+    io::stdout().flush().unwrap();
+
+    let _result = Popen::create(&["cpr_tmp_file"], PopenConfig {
+        ..Default::default()
+    }).unwrap().wait();
 }
 
 fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
@@ -357,7 +549,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
         print!("Case #{:<6}", format!("{}:", test));
         io::stdout().flush().unwrap();
 
-        let result = run_and_wait(&[&filename], &["in", &test.to_string()].concat(), &["out", &test.to_string()].concat(), timeout);
+        let result = run_and_wait(&[&filename], &["in", &test.to_string()].concat(), &["out", &test.to_string()].concat(), Some(timeout));
         let duration = now.elapsed().as_millis();
         print!("{:>5} ms   ", duration);
 
@@ -393,7 +585,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             let inout = [in_string, out_string].concat();
             fs::File::create(&["inout", &test.to_string()].concat()).unwrap().write(inout.as_bytes()).unwrap();
 
-            let result = run_and_wait(&[&check_str], &["inout", &test.to_string()].concat(), &["ans", &test.to_string()].concat(), timeout);
+            let result = run_and_wait(&[&check_str], &["inout", &test.to_string()].concat(), &["ans", &test.to_string()].concat(), Some(timeout));
             if !result.success() {
                 stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
                 writeln!(&mut stdout, "failed").unwrap();
@@ -1162,6 +1354,8 @@ fn main() {
         help();
     } else if args[0] == "stress" {
         stress_test(&args[1..].to_vec(), &params);
+    } else if args[0] == "istress" {
+        stress_test_inline(&args[1..].to_vec(), &params);
     } else if args[0] == "test" {
         run_tests(&args[1..].to_vec(), &params);
     } else if args[0] == "interact" {
@@ -1194,7 +1388,7 @@ fn main() {
 
 // *********************************** internal ***********************************
 
-fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: f64) -> ExitStatus {
+fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) -> ExitStatus {
     let stdin = match fin {
         "" => Redirection::Pipe,
         name => Redirection::File(fs::File::open(name).unwrap())
@@ -1226,7 +1420,11 @@ fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: f64) -> ExitS
         }
     };
 
-    p.wait_timeout(std::time::Duration::from_millis((timeout * 1000.0).round() as u64)).unwrap();
+    if let Some(timeout) = timeout {
+        p.wait_timeout(std::time::Duration::from_millis((timeout * 1000.0).round() as u64)).unwrap();
+    } else {
+        p.wait().unwrap();
+    }
 
     if let None = p.poll() {
         p.terminate().unwrap();
