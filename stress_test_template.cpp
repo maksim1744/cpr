@@ -27,8 +27,10 @@ int main() {
 
     for (int test = 1;; ++test) {
         int seed = start_seed + test - 1;
-        cerr << '\r' << string(35, ' ');
-        cerr << "\rCase #" << test << " [seed=" << seed << "]: ";
+        stringstream sscerr;
+        sscerr << "Case #" << test << " [seed=" << seed << "]: ";
+        cerr << '\r' << sscerr.str() << string(3, ' ');
+        cerr << '\r' << sscerr.str();
         gen_sol::cin = stringstream{};
         gen_sol::cout = stringstream{};
         gen_sol::cerr = stringstream{};
