@@ -7,8 +7,6 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::{Instant};
 
-use soup::prelude::*;
-
 use chrono::{Local};
 
 use indoc::indoc;
@@ -19,6 +17,9 @@ use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+
+use std::io::prelude::*;
+use std::net::TcpListener;
 
 mod draw;
 
@@ -760,221 +761,92 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
 fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
     if !args.is_empty() && args[0] == "--help" {
         let s = indoc! {"
-            Usage: cpr parse [url] [flags]
+            Usage: cpr parse [flags]
 
-            Parses samples from url. If not specified, then uses url from file \"params\".
-            If there is no url, then takes url from file \"params\" in the parent folder
-            and adds \"/[current_folder]\" to it.
+            Parses samples using competitive companion (port 10046)
 
             Flags:
                 --help              Display this message
+                -f                  Ignore expected url, parse anyway
         "};
         print!("{}", s);
         return;
     }
 
-    let url: String;
-    if !args.is_empty() {
-        url = args[0].clone();
-    } else if params.contains_key("url") {
-        url = params.get("url").unwrap().clone();
+    let mut url: Option<String>;
+    if params.contains_key("url") {
+        url = Some(params.get("url").unwrap().clone());
     } else {
-        eprintln!("Can't find url anywhere");
-        std::process::exit(1);
+        url = None
     }
 
-    println!("Parsing from url \"{}\"", url);
-
-    if url.contains("codeforces.com") {
-        let response = reqwest::blocking::get(&url).unwrap().text().unwrap();
-        let soup = Soup::new(&response);
-
-        let inputs: Vec<_> = soup.tag("div").class("input").find_all().map(|x| x.tag("pre").find().unwrap().display()).collect();
-        let inputs: Vec<_> = inputs.iter().map(|x| x.replace("<br>", "").replace("</br>", "\n").replace("<pre>", "").replace("</pre>", "")).collect();
-
-        let answers: Vec<_> = soup.tag("div").class("output").find_all().map(|x| x.tag("pre").find().unwrap().display()).collect();
-        let answers: Vec<_> = answers.iter().map(|x| x.replace("<br>", "").replace("</br>", "\n").replace("<pre>", "").replace("</pre>", "")).collect();
-
-        for i in 0..inputs.len() {
-            let test = first_available_test();
-            fs::File::create(&["in", &test.to_string()].concat()).unwrap().write(inputs[i].as_bytes()).unwrap();
-            if i < answers.len() {
-                fs::File::create(&["ans", &test.to_string()].concat()).unwrap().write(answers[i].as_bytes()).unwrap();
-            }
+    for arg in args.iter() {
+        if arg == "-f" {
+            url = None;
+        } else if arg.starts_with("-") {
+            eprintln!("Unknown flag \"{}\"", arg);
+            std::process::exit(1);
         }
+    }
 
-        println!("Parsed {} tests from codeforces", inputs.len());
-    } else if url.contains("codechef.com") {
-        let mut v: Vec<_> = url.split("/").collect();
-        while v.last().unwrap().is_empty() {
-            v.pop();
-        }
-        let contest = v[v.len() - 3];
-        let problem = v[v.len() - 1];
-
-        let url = format!("https://www.codechef.com/api/contests/{}", contest);
-
-        let response = reqwest::blocking::get(&url).unwrap().text().unwrap();
-        let data: Value = serde_json::from_str(&response).unwrap();
-        let mut samples = data["problems_data"][problem]["body"].to_string();
-
-        if samples == "null" {
-            let url = format!("https://www.codechef.com/api/contests/{}/problems/{}", contest, problem);
-            let response = reqwest::blocking::get(&url).unwrap().text().unwrap();
-            let data: Value = serde_json::from_str(&response).unwrap();
-            samples = data["body"].to_string();
-            if samples == "null" {
-                eprintln!("Can't read samples");
-                std::process::exit(1);
-            }
-        }
-
-        let mut inputs: Vec<String> = Vec::new();
-        let mut answers: Vec<String> = Vec::new();
-
-        for item in samples.split("###") {
-            if item.to_lowercase().contains("sample input") {
-                let item = (&item["Sample Input:".len()..])
-                    .replace("\\n", "\n")
-                    .replace("\\r", "\r")
-                    .replace("\\t", "")
-                    .replace("```", "").trim().to_string();
-                inputs.push(item);
-            }
-            if item.to_lowercase().contains("sample output") {
-                let item = (&item["Sample Output:".len()..])
-                    .replace("\\n", "\n")
-                    .replace("\\r", "\r")
-                    .replace("\\t", "")
-                    .replace("```", "").trim().to_string();
-                answers.push(item);
-            }
-        }
-
-        for i in 0..inputs.len() {
-            let ind = first_available_test();
-            fs::File::create(&["in", &ind.to_string()].concat()).unwrap().write(inputs[i].as_bytes()).unwrap();
-            if i < answers.len() {
-                fs::File::create(&["ans", &ind.to_string()].concat()).unwrap().write(answers[i].as_bytes()).unwrap();
-            }
-        }
-
-        println!("Parsed {} tests from codechef", inputs.len());
-    } else if url.contains("atcoder.jp") {
-        let mut problem_response = reqwest::blocking::get(&url).unwrap();
-        if let reqwest::StatusCode::OK = problem_response.status() {
-        } else {
-            eprintln!("logging in...");
-            let client = reqwest::blocking::Client::builder().cookie_store(true)
-                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36").build().unwrap();
-            let response = client.get("https://atcoder.jp/login").send().unwrap().text().unwrap();
-
-            let (login, password) = get_login_password("atcoder");
-
-            let form = [
-                ("csrf_token", &extract_atcoder_csrf(&response)[..]),
-                ("username", &login),
-                ("password", &password),
-            ];
-
-            let post = client.post("https://atcoder.jp/login").form(&form);
-            let response = post.send().unwrap().text().unwrap();
-            if response.contains("Username or Password is incorrect") {
-                eprintln!("Login failed\n");
-                std::process::exit(1);
-            }
-
-            problem_response = client.get(&url).send().unwrap();
-        }
-
-        let soup = Soup::new(&problem_response.text().unwrap());
-        let mut pres: Vec<_> = soup.tag("pre").find_all().collect();
-        pres = pres[2 - pres.len()/2 % 2..pres.len() / 2].to_vec();
-
-        for i in 0..pres.len() / 2 {
-            let input = pres[i * 2].text();
-            let answer = pres[i * 2 + 1].text();
-            let test = first_available_test();
-            fs::File::create(&["in", &test.to_string()].concat()).unwrap().write(input.as_bytes()).unwrap();
-            fs::File::create(&["ans", &test.to_string()].concat()).unwrap().write(answer.as_bytes()).unwrap();
-        }
-
-        println!("Parsed {} tests from atcoder", pres.len() / 2);
-    } else if url.contains("codingame.com/ide/puzzle") {
-        let problem = url.split("/").collect::<Vec<_>>().last().unwrap().to_string();
-        let client = reqwest::blocking::Client::builder().cookie_store(true)
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36").build().unwrap();
-
-        let response = client.post("https://www.codingame.com/services/Puzzle/generateSessionFromPuzzlePrettyId")
-            .body(format!("[null, \"{}\", false]", problem)).send().unwrap().text().unwrap();
-
-        let handle: Value = serde_json::from_str(&response).unwrap();
-        let handle = handle["handle"].to_string();
-        let handle = handle[1..handle.len() - 1].to_string();  // remove quotes
-
-        let response = client.post("https://www.codingame.com/services/TestSession/startTestSession")
-            .body(format!("[\"{}\"]", handle)).send().unwrap().text().unwrap();
-
-        let data: Value = serde_json::from_str(&response).unwrap();
-        let data: Vec<Value> = serde_json::from_str(&data["currentQuestion"]["question"]["testCases"].to_string()).unwrap();
-
-        print!("Downloaded 0 tests out of {}", data.len());
-        io::stdout().flush().unwrap();
-
-        for (i, item) in data.iter().enumerate() {
-            let input_id = item["inputBinaryId"].to_string();
-            let answer_id = item["outputBinaryId"].to_string();
-            let input = client.get(&format!("https://static.codingame.com/servlet/fileservlet?id={}", input_id)).send().unwrap().text().unwrap();
-            let answer = client.get(&format!("https://static.codingame.com/servlet/fileservlet?id={}", answer_id)).send().unwrap().text().unwrap();
-            let ind = first_available_test();
-            fs::File::create(&["in", &ind.to_string()].concat()).unwrap().write(input.as_bytes()).unwrap();
-            fs::File::create(&["ans", &ind.to_string()].concat()).unwrap().write(answer.as_bytes()).unwrap();
-            print!("\rDownloaded {} tests out of {}", i + 1, data.len());
-            io::stdout().flush().unwrap();
-        }
-
-        println!("\nParsed {} tests from codingame", data.len());
-    } else if url.contains("cses.fi/problemset") {
-        let response = reqwest::blocking::get(&url).unwrap().text().unwrap();
-
-        let response = response.to_string().replace("<br />\r\n", "\n");
-        let response = response[response.find("<b id=\"example").unwrap()..].to_string();
-        let code_open = "<code>";
-        let code_close = "</code>";
-
-        let mut code_opens: Vec<usize> = Vec::new();
-        let mut code_closes: Vec<usize> = Vec::new();
-        for i in 0..response.len() {
-            if i + code_open.len() <= response.len() && &response[i..i+code_open.len()] == code_open {
-                code_opens.push(i + code_open.len());
-            } else if i + code_close.len() <= response.len() && &response[i..i+code_close.len()] == code_close {
-                code_closes.push(i);
-            }
-        }
-
-        let mut inputs: Vec<String> = Vec::new();
-        let mut answers: Vec<String> = Vec::new();
-
-        for i in 0..code_opens.len() {
-            if i % 2 == 0 {
-                inputs.push(response[code_opens[i]..code_closes[i]].to_string());
-            } else {
-                answers.push(response[code_opens[i]..code_closes[i]].to_string());
-            }
-        }
-
-        for i in 0..inputs.len() {
-            let test = first_available_test();
-            fs::File::create(&["in", &test.to_string()].concat()).unwrap().write(inputs[i].as_bytes()).unwrap();
-            if i < answers.len() {
-                fs::File::create(&["ans", &test.to_string()].concat()).unwrap().write(answers[i].as_bytes()).unwrap();
-            }
-        }
-
-        println!("Parsed {} tests from cses", inputs.len());
+    if let Some(ref url) = url {
+        println!("Expecting url \"{}\"", url);
     } else {
-        eprintln!("I don't know how to parse from this url :(");
-        std::process::exit(1);
+        println!("Accepting from any url")
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:10046").unwrap();
+
+    for stream in listener.incoming() {
+        let mut stream = stream.unwrap();
+
+        let mut buffer = [0; 8096];
+
+        stream.read(&mut buffer).unwrap();
+
+        let response = String::from_utf8_lossy(&buffer[..]);
+        let response = response[response.find("\r\n\r\n").unwrap() + 4..].to_string();
+        let response = response.trim_matches(char::from(0));
+
+        let data: Value = match serde_json::from_str(&response) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("Can't read json from [{}], {}", response, e);
+                std::process::exit(1);
+            }
+        };
+
+        let response_url = data["url"].as_str().unwrap();
+        if let Some(ref url) = url {
+            if response_url != url {
+                println!("Skipping url \"{}\"", response_url);
+                continue;
+            }
+        }
+
+        println!("Got url \"{}\"", response_url);
+
+        if data["interactive"].as_bool().unwrap() {
+            println!("This is an interactive problem");
+            break;
+        }
+
+        let tests = data["tests"].as_array().unwrap();
+
+        for test in tests.iter() {
+            let index = first_available_test();
+            let input = test["input"].as_str().unwrap();
+            let answer = test["output"].as_str().unwrap();
+
+            fs::File::create(&["in", &index.to_string()].concat()).unwrap().write(input.as_bytes()).unwrap();
+            if !answer.is_empty() {
+                fs::File::create(&["ans", &index.to_string()].concat()).unwrap().write(answer.as_bytes()).unwrap();
+            }
+        }
+
+        println!("Parsed {} tests", tests.len());
+
+        break;
     }
 }
 
@@ -1004,7 +876,7 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         Tstart,
         Gcj,
         Gstart,
-    };
+    }
 
     let mut template_type = TemplateType::Start;
 
@@ -1271,10 +1143,10 @@ fn make_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         let read_result = io::stdin().read_line(&mut line);
         if let Err(_) = read_result {
             eprintln!("Can't read line");
-            break;
+            return;
         }
         if let Ok(0) = read_result {
-            break;
+            return;
         }
 
         if line.trim() == "`" {
@@ -1616,12 +1488,6 @@ fn extract_codeforces_csrf(html: &str) -> String {
     let search_for = "data-csrf='";
     let idx = html.find(search_for).unwrap() + search_for.len();
     html[idx..idx + 32].to_string()
-}
-
-fn extract_atcoder_csrf(html: &str) -> String {
-    let search_for = "var csrfToken = \"";
-    let idx = html.find(search_for).unwrap() + search_for.len();
-    html[idx..idx + 44].to_string()
 }
 
 fn get_login_password(source: &str) -> (String, String) {
