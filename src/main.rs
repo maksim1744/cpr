@@ -5,13 +5,14 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
-use std::time::{Instant};
+use std::time::Instant;
 
 use chrono::{Local};
 
 use indoc::indoc;
 
 use serde_json::Value;
+use serde_json::map::Map;
 
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
@@ -767,7 +768,10 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
 
             Flags:
                 --help              Display this message
-                -f                  Ignore expected url, parse anyway
+                -f                  Ignore all settings and listen on port
+                --contest           Parse contest
+                    -n              Specify the number of problems
+                     -na, -nA, -n1  Specify name of first problem
         "};
         print!("{}", s);
         return;
@@ -780,55 +784,58 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         url = None
     }
 
-    for arg in args.iter() {
-        if arg == "-f" {
+    let mut parse_contest = false;
+    let mut problem_names: Vec<String> = Vec::new();
+    let mut force = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-f" {
             url = None;
-        } else if arg.starts_with("-") {
-            eprintln!("Unknown flag \"{}\"", arg);
-            std::process::exit(1);
-        }
-    }
-
-    if let Some(ref url) = url {
-        println!("Expecting url \"{}\"", url);
-    } else {
-        println!("Accepting from any url")
-    }
-
-    let listener = TcpListener::bind("127.0.0.1:10046").unwrap();
-
-    for stream in listener.incoming() {
-        let mut stream = stream.unwrap();
-
-        let mut buffer = [0; 8096];
-
-        stream.read(&mut buffer).unwrap();
-
-        let response = String::from_utf8_lossy(&buffer[..]);
-        let response = response[response.find("\r\n\r\n").unwrap() + 4..].to_string();
-        let response = response.trim_matches(char::from(0));
-
-        let data: Value = match serde_json::from_str(&response) {
-            Ok(x) => x,
-            Err(e) => {
-                eprintln!("Can't read json from [{}], {}", response, e);
+            force = true;
+            i += 1;
+        } else if args[i] == "--contest" {
+            parse_contest = true;
+            i += 1;
+        } else if args[i].starts_with("-n") {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify number of problems after \"-n\"");
                 std::process::exit(1);
             }
-        };
-
-        let response_url = data["url"].as_str().unwrap();
-        if let Some(ref url) = url {
-            if response_url != url {
-                println!("Skipping url \"{}\"", response_url);
-                continue;
+            let mut first_problem = args[i][2..].to_string();
+            if first_problem.is_empty() {
+                first_problem = "A".to_string();
             }
+            let problem_count = match args[i + 1].parse() {
+                Ok(x) => x,
+                Err(_) => {
+                    eprintln!("Can't parse integer seed after \"-n\"");
+                    std::process::exit(1)
+                }
+            };
+            for j in 0..problem_count {
+                if first_problem == "A" {
+                    problem_names.push(String::from_utf8(vec![b'A' + j]).unwrap());
+                } else if first_problem == "a" {
+                    problem_names.push(String::from_utf8(vec![b'a' + j]).unwrap());
+                } else if first_problem == "1" {
+                    problem_names.push(String::from_utf8((j + 1).to_string().as_bytes().to_vec()).unwrap());
+                }
+            }
+            i += 2;
+        } else if args[i].starts_with("-") {
+            eprintln!("Unknown flag \"{}\"", args[i]);
+            std::process::exit(1);
+        } else {
+            problem_names.push(args[i].clone());
+            i += 1;
         }
+    }
 
-        println!("Got url \"{}\"", response_url);
-
+    let create_tests_from_json = |data: &Value| {
         if data["interactive"].as_bool().unwrap() {
             println!("This is an interactive problem");
-            break;
+            return;
         }
 
         let tests = data["tests"].as_array().unwrap();
@@ -845,8 +852,119 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         }
 
         println!("Parsed {} tests", tests.len());
+    };
 
-        break;
+    if parse_contest {
+        println!("Creating problems: {:?}", problem_names);
+    }
+
+    if !parse_contest && !force {
+        let preparsed_samples = fs::read_to_string("../.preparsed_samples");
+        if let Ok(preparsed_samples) = preparsed_samples {
+            let preparsed: Value = match serde_json::from_str(&preparsed_samples) {
+                Ok(x) => x,
+                Err(_) => {
+                    eprintln!("Can't parse json from \"settings.json\"");
+                    std::process::exit(1);
+                }
+            };
+            let path = std::env::current_dir().unwrap().to_str().unwrap().to_string();
+            let parts: Vec<&str>;
+            if path.contains("\\") {
+                parts = path.split("\\").collect();
+            } else {
+                parts = path.split("/").collect();
+            }
+            let problem = parts[parts.len() - 1];
+
+            if let Some(data) = preparsed.get(problem) {
+                create_tests_from_json(data);
+            } else {
+                for suffix in 1.. {
+                    if let Some(data) = preparsed.get(&[problem, &suffix.to_string()].concat()) {
+                        create_tests_from_json(data);
+                    } else {
+                        break;
+                    }
+                }
+            }
+            return;
+        } else {
+            println!("Can't find ../.preparsed_samples");
+        }
+    }
+
+    if let Some(ref url) = url {
+        println!("Expecting url \"{}\"", url);
+    } else {
+        println!("Accepting from any url")
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:10046").unwrap();
+
+    let mut problem_iter = 0 as usize;
+    let mut listener_iter = listener.incoming();
+    let mut contest_data: Map<String, Value> = Map::new();
+
+    let mut parsed_problems: HashSet<String> = HashSet::new();
+
+    loop {
+        let mut problem_name: String = String::new();
+        if parse_contest {
+            if problem_iter == problem_names.len() {
+                break
+            } else {
+                problem_name = problem_names[problem_iter].clone();
+                problem_iter += 1;
+            }
+        }
+
+        let mut stream = listener_iter.next().unwrap().unwrap();
+
+        let mut buffer = [0; 4096];
+
+        stream.read(&mut buffer).unwrap();
+
+        let response = String::from_utf8_lossy(&buffer[..]);
+        let response = response[response.find("\r\n\r\n").unwrap() + 4..].to_string();
+        let response = response.trim_matches(char::from(0));
+
+        let data: Value = match serde_json::from_str(&response) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("Can't read json from [{}], {}", response, e);
+                std::process::exit(1);
+            }
+        };
+
+        let response_url = data["url"].as_str().unwrap().to_string();
+
+        if let Some(ref url) = url {
+            if &response_url != url {
+                println!("Skipping url \"{}\"", response_url);
+                continue;
+            }
+        }
+
+        println!("Got url \"{}\"", response_url);
+
+        if parse_contest {
+            if parsed_problems.contains(&response_url) {
+                println!("duplicate");
+                problem_iter -= 1;
+            } else {
+                contest_data.insert(problem_name, data);
+                parsed_problems.insert(response_url);
+            }
+            let data = Value::Object(contest_data.clone());
+            fs::File::create(".preparsed_samples").unwrap().write(serde_json::to_string(&data).unwrap().as_bytes()).unwrap();
+        } else {
+            create_tests_from_json(&data);
+            return;
+        }
+    }
+
+    if parse_contest {
     }
 }
 
