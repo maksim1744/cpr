@@ -772,6 +772,7 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
                 --contest           Parse contest
                     -n              Specify the number of problems
                      -na, -nA, -n1  Specify name of first problem
+                --echo              Print full responses
         "};
         print!("{}", s);
         return;
@@ -787,6 +788,7 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
     let mut parse_contest = false;
     let mut problem_names: Vec<String> = Vec::new();
     let mut force = false;
+    let mut echo = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -823,6 +825,8 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
                 }
             }
             i += 2;
+        } else if args[i] == "--echo" {
+            echo = true;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
             std::process::exit(1);
@@ -856,6 +860,7 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
 
     if parse_contest {
         println!("Creating problems: {:?}", problem_names);
+        url = None;
     }
 
     if !parse_contest && !force {
@@ -926,16 +931,25 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         stream.read(&mut buffer).unwrap();
 
         let response = String::from_utf8_lossy(&buffer[..]);
-        let response = response[response.find("\r\n\r\n").unwrap() + 4..].to_string();
+        if echo {
+            println!("{:?}", response);
+        }
+        let json_start = response.find("\r\n\r\n");
+        if json_start.is_none() {
+            println!("Empty response");
+            problem_iter -= 1;
+            continue;
+        }
+        let response = response[json_start.unwrap() + 4..].to_string();
         let response = response.trim_matches(char::from(0));
 
-        let data: Value = match serde_json::from_str(&response) {
-            Ok(x) => x,
-            Err(e) => {
-                eprintln!("Can't read json from [{}], {}", response, e);
-                std::process::exit(1);
-            }
-        };
+        let data = serde_json::from_str::<Value>(&response);
+        if !data.is_ok() {
+            eprintln!("Can't read json from [{}]", response);
+            problem_iter -= 1;
+            continue;
+        }
+        let data = data.unwrap();
 
         let response_url = data["url"].as_str().unwrap().to_string();
 
