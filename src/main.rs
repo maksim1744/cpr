@@ -454,6 +454,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 --checkf            Specify command line for checker
                 -e, --eps [value]   Specify epsilon for comparison
                 -t, --timeout [t]   Specify timeout in seconds (may be float)
+                --nonear            Print output and answer one below another
         "};
         print!("{}", s);
         return;
@@ -473,6 +474,8 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut epsilon: f64 = 0.0;
 
     let mut timeout = DEFAULT_TIMEOUT;
+
+    let mut near = true;
 
     while i < args.len() {
         if args[i] == "-i" {
@@ -537,6 +540,8 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
         } else if args[i] == "-t" || args[i] == "--timeout" {
             timeout = args[i + 1].parse().unwrap();
             i += 1;
+        } else if args[i] == "-t" || args[i] == "--nonear" {
+            near = false;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
             std::process::exit(1);
@@ -618,10 +623,65 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             if !quiet {
                 println!("========== in  ==========");
                 println!("{}", read_lines_trim(&["in", &test.to_string()].concat()).join("\n"));
-                println!("========== out ==========");
-                println!("{}", read_lines_trim(&["out", &test.to_string()].concat()).join("\n"));
-                println!("========== ans ==========");
-                println!("{}", read_lines_trim(&["ans", &test.to_string()].concat()).join("\n"));
+
+                if near {
+                    let out_lines = read_lines_trim(&["out", &test.to_string()].concat());
+                    let ans_lines = read_lines_trim(&["ans", &test.to_string()].concat());
+                    let mut width: usize = 0;
+                    for line in out_lines.iter() {
+                        width = width.max(line.len());
+                    }
+                    for line in ans_lines.iter() {
+                        width = width.max(line.len());
+                    }
+                    width += 1;
+                    println!("{:=^width$}", "=", width = width * 2 + 9);
+                    println!("|   |{:^width$}|{:^width$}|", "out", "ans", width = width + 1);
+                    println!("-----{:-^width$}-{:-^width$}-", "", "", width = width + 1);
+                    for i in 0..out_lines.len().max(ans_lines.len()) {
+                        print!("|");
+                        if i >= out_lines.len() || i >= ans_lines.len() || out_lines[i] != ans_lines[i] {
+                            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+                            write!(&mut stdout, "{:^3}", i + 1).unwrap();
+                            stdout.set_color(&ColorSpec::new()).unwrap();
+                        } else {
+                            write!(&mut stdout, "{:^3}", i + 1).unwrap();
+                        }
+                        print!("| ");
+                        if i < out_lines.len() {
+                            print!("{:width$}", out_lines[i], width = width);
+                        } else {
+                            print!("{:width$}", "", width = width);
+                        }
+                        print!("| ");
+                        if i < ans_lines.len() {
+                            print!("{:width$}", ans_lines[i], width = width);
+                        } else {
+                            print!("{:width$}", "", width = width);
+                        }
+                        println!("|");
+                    }
+                } else if has_epsilon {
+                    println!("========== out ==========");
+                    println!("{}", read_lines_trim(&["out", &test.to_string()].concat()).join("\n"));
+                    println!("========== ans ==========");
+                    println!("{}", read_lines_trim(&["ans", &test.to_string()].concat()).join("\n"));
+                } else {
+                    let out_lines = read_lines_trim(&["out", &test.to_string()].concat());
+                    let ans_lines = read_lines_trim(&["ans", &test.to_string()].concat());
+                    println!("========== out ==========");
+                    for i in 0..out_lines.len() {
+                        if i >= ans_lines.len() || out_lines[i] != ans_lines[i] {
+                            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+                            writeln!(&mut stdout, "{}", &out_lines[i]).unwrap();
+                            stdout.set_color(&ColorSpec::new()).unwrap();
+                        } else {
+                            writeln!(&mut stdout, "{}", &out_lines[i]).unwrap();
+                        }
+                    }
+                    println!("========== ans ==========");
+                    println!("{}", read_lines_trim(&["ans", &test.to_string()].concat()).join("\n"));
+                }
             }
         } else {
             stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green))).unwrap();
@@ -1343,6 +1403,14 @@ fn measure_time(args: &Vec<String>, _params: &HashMap<String, String>) {
     p.wait().unwrap();
     let duration = now.elapsed().as_secs_f32();
 
+    let result = p.poll().unwrap();
+    if !result.success() {
+        let mut stderr = StandardStream::stderr(ColorChoice::Always);
+        stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+        writeln!(&mut stderr, "failed with status {:?}", result).unwrap();
+        stderr.set_color(&ColorSpec::new()).unwrap();
+    }
+
     eprintln!("time: {:.3}", duration);
 }
 
@@ -1438,9 +1506,9 @@ fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) 
 }
 
 fn read_lines_trim(filename: &str) -> Vec<String> {
-    let mut res = fs::read_to_string(filename).unwrap().trim().split("\n").map(String::from).collect::<Vec<_>>();
+    let mut res = fs::read_to_string(filename).unwrap().trim_end().split("\n").map(String::from).collect::<Vec<_>>();
     for i in 0..res.len() {
-        res[i] = res[i].trim().to_string();
+        res[i] = res[i].trim_end().to_string();
     }
     res
 }
