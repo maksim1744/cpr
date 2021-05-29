@@ -454,7 +454,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 --checkf            Specify command line for checker
                 -e, --eps [value]   Specify epsilon for comparison
                 -t, --timeout [t]   Specify timeout in seconds (may be float)
-                --nonear            Print output and answer one below another
+                --near              Print output and answer side by side
         "};
         print!("{}", s);
         return;
@@ -475,7 +475,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let mut timeout = DEFAULT_TIMEOUT;
 
-    let mut near = true;
+    let mut near = false;
 
     while i < args.len() {
         if args[i] == "-i" {
@@ -540,8 +540,8 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
         } else if args[i] == "-t" || args[i] == "--timeout" {
             timeout = args[i + 1].parse().unwrap();
             i += 1;
-        } else if args[i] == "-t" || args[i] == "--nonear" {
-            near = false;
+        } else if args[i] == "-t" || args[i] == "--near" {
+            near = true;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
             std::process::exit(1);
