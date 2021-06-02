@@ -22,6 +22,11 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use std::io::prelude::*;
 use std::net::TcpListener;
 
+use std::thread;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::process::{Command, Stdio};
+
 mod draw;
 
 const LOCAL_PARAMS_NAME: &str = "params";
@@ -700,6 +705,8 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
                 --help              Display this message
                 -q, --quiet         Don't display anything, except number of current test
                 --interactf         Specify interactor filename (\"interact\" by default)
+                --debug             Run interactor and main once, printing each line
+                  --tab-size [val]  Number of spaces before printing \"judge:\". 20 by default
         "};
         print!("{}", s);
         return;
@@ -709,6 +716,8 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut quiet = false;
     let mut filename = String::from(DEFAULT_FILE_NAME);
     let mut interact = String::from("interact");
+    let mut debug = false;
+    let mut tab_size = 20;
 
     let mut i = 0;
 
@@ -735,6 +744,21 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
             }
             interact = args[i + 1].clone();
             i += 1;
+        } else if args[i] == "--debug" {
+            debug = true;
+        } else if args[i] == "--tab-size" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify tab size after \"--tab-size\"");
+                std::process::exit(1);
+            }
+            tab_size = match args[i + 1].parse() {
+                Ok(x) => x,
+                Err(_) => {
+                    eprintln!("Can't parse integer seed after \"--tab-size\"");
+                    std::process::exit(1)
+                }
+            };
+            i += 1;
         } else if args[i].starts_with("-") {
             eprintln!("Unknown flag \"{}\"", args[i]);
             std::process::exit(1);
@@ -756,6 +780,124 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     if cfg!(unix) {
         interact_vec[0] = ["./", &filename_vec[0]].concat().to_string();
+    }
+
+    if debug {
+        let mut main = Command::new(filename_vec[0].clone());
+        for i in 1..filename_vec.len() {
+            main.arg(filename_vec[i].clone());
+        }
+        let mut main = main.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("!oops");
+        let out_main = child_stream_to_vec(main.stdout.take().expect("!stdout"));
+        let err_main = child_stream_to_vec(main.stderr.take().expect("!stderr"));
+        let mut stdin = match main.stdin.take() {
+            Some(stdin) => stdin,
+            None => panic!("!stdin"),
+        };
+
+        let mut interact = Command::new(interact_vec[0].clone());
+        for i in 1..interact_vec.len() {
+            interact.arg(interact_vec[i].clone());
+        }
+        let mut interact = interact.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("!oops");
+        let out_judge = child_stream_to_vec(interact.stdout.take().expect("!stdout"));
+        let err_judge = child_stream_to_vec(interact.stderr.take().expect("!stderr"));
+        let mut stdin_judge = match interact.stdin.take() {
+            Some(stdin) => stdin,
+            None => panic!("!stdin"),
+        };
+
+        let mut main_finished = false;
+        let mut judge_finished = false;
+
+        let mut stdout = StandardStream::stdout(ColorChoice::Always);
+
+        while !main_finished || !judge_finished {
+            if !err_main.lock().unwrap().is_empty() {
+                if err_main.lock().unwrap().last().unwrap() == &b'\n' {
+                    let result = &String::from_utf8(err_main.lock().unwrap().to_vec()).unwrap();
+                    err_main.lock().unwrap().clear();
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
+                    for line in result.split('\n') {
+                        if !line.is_empty() {
+                            writeln!(&mut stdout, "main: {}", &line).unwrap();
+                        }
+                    }
+                    stdout.set_color(&ColorSpec::new()).unwrap();
+                }
+            }
+            if !out_main.lock().unwrap().is_empty() {
+                if !main_finished && out_main.lock().unwrap().last().unwrap() == &(0 as u8) {
+                    main_finished = true;
+                    out_main.lock().unwrap().pop();
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
+                    writeln!(&mut stdout, "main finished").unwrap();
+                    stdout.set_color(&ColorSpec::new()).unwrap();
+                }
+                if !out_main.lock().unwrap().is_empty() {
+                    if out_main.lock().unwrap().last().unwrap() == &b'\n' {
+                        let result = &String::from_utf8(out_main.lock().unwrap().to_vec()).unwrap();
+                        out_main.lock().unwrap().clear();
+                        for line in result.split('\n') {
+                            if !line.is_empty() {
+                                writeln!(&mut stdout, "main: {}", &line).unwrap();
+                            }
+                        }
+                        match stdin_judge.write_all(result.as_bytes()) {
+                            Err(x) => {
+                                eprintln!("can't send data to judge [{}]", x);
+                                judge_finished = true;
+                            },
+                            _ => {}
+                        };
+                    }
+                }
+            }
+            if !err_judge.lock().unwrap().is_empty() {
+                if err_judge.lock().unwrap().last().unwrap() == &b'\n' {
+                    let result = &String::from_utf8(err_judge.lock().unwrap().to_vec()).unwrap();
+                    err_judge.lock().unwrap().clear();
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
+                    for line in result.split('\n') {
+                        if !line.is_empty() {
+                            writeln!(&mut stdout, "{:w$}judge: {}", "", &line, w = tab_size).unwrap();
+                        }
+                    }
+                    stdout.set_color(&ColorSpec::new()).unwrap();
+                }
+            }
+            if !out_judge.lock().unwrap().is_empty() {
+                if !judge_finished && out_judge.lock().unwrap().last().unwrap() == &(0 as u8) {
+                    judge_finished = true;
+                    out_judge.lock().unwrap().pop();
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
+                    writeln!(&mut stdout, "{:w$}judge finished", "", w = tab_size).unwrap();
+                    stdout.set_color(&ColorSpec::new()).unwrap();
+                }
+                if !out_judge.lock().unwrap().is_empty() {
+                    if out_judge.lock().unwrap().last().unwrap() == &b'\n' {
+                        let result = &String::from_utf8(out_judge.lock().unwrap().to_vec()).unwrap();
+                        out_judge.lock().unwrap().clear();
+                        for line in result.split('\n') {
+                            if !line.is_empty() {
+                                writeln!(&mut stdout, "{:w$}judge: {}", "", &line, w = tab_size).unwrap();
+                            }
+                        }
+                        stdin.write_all(result.as_bytes()).expect("can't send data to main");
+                    }
+                }
+            }
+        }
+
+        return;
     }
 
     let mut case = 1;
@@ -1725,4 +1867,33 @@ fn get_login_password(source: &str) -> (String, String) {
         }
     };
     (login.to_string(), password.to_string())
+}
+
+fn child_stream_to_vec<R>(mut stream: R) -> Arc<Mutex<Vec<u8>>> where R: Read + Send + 'static {
+    let out = Arc::new(Mutex::new(Vec::new()));
+    let vec = out.clone();
+    thread::Builder::new()
+        .name("child_stream_to_vec".into())
+        .spawn(move || loop {
+            let mut buf = [0];
+            match stream.read(&mut buf) {
+                Err(err) => {
+                    println!("[{}] Error reading from stream: {}", line!(), err);
+                    break;
+                }
+                Ok(got) => {
+                    if got == 0 {
+                        vec.lock().expect("!lock").push(0);
+                        break;
+                    } else if got == 1 {
+                        vec.lock().expect("!lock").push(buf[0]);
+                    } else {
+                        println!("[{}] Unexpected number of bytes: {}", line!(), got);
+                        break;
+                    }
+                }
+            }
+        })
+        .expect("!thread");
+    out
 }
