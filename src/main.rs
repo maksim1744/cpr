@@ -822,7 +822,7 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
 
         while !main_finished || !judge_finished {
             if !err_main.lock().unwrap().is_empty() {
-                if err_main.lock().unwrap().last().unwrap() == &b'\n' {
+                if err_main.lock().unwrap().last().unwrap() == &b'\n' || main_finished {
                     let result = &String::from_utf8(err_main.lock().unwrap().to_vec()).unwrap();
                     err_main.lock().unwrap().clear();
                     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
@@ -843,7 +843,7 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
                     stdout.set_color(&ColorSpec::new()).unwrap();
                 }
                 if !out_main.lock().unwrap().is_empty() {
-                    if out_main.lock().unwrap().last().unwrap() == &b'\n' {
+                    if out_main.lock().unwrap().last().unwrap() == &b'\n' || main_finished {
                         let result = &String::from_utf8(out_main.lock().unwrap().to_vec()).unwrap();
                         out_main.lock().unwrap().clear();
                         for line in result.split('\n') {
@@ -862,7 +862,7 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
                 }
             }
             if !err_judge.lock().unwrap().is_empty() {
-                if err_judge.lock().unwrap().last().unwrap() == &b'\n' {
+                if err_judge.lock().unwrap().last().unwrap() == &b'\n' || judge_finished {
                     let result = &String::from_utf8(err_judge.lock().unwrap().to_vec()).unwrap();
                     err_judge.lock().unwrap().clear();
                     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
@@ -883,7 +883,7 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
                     stdout.set_color(&ColorSpec::new()).unwrap();
                 }
                 if !out_judge.lock().unwrap().is_empty() {
-                    if out_judge.lock().unwrap().last().unwrap() == &b'\n' {
+                    if out_judge.lock().unwrap().last().unwrap() == &b'\n' || judge_finished {
                         let result = &String::from_utf8(out_judge.lock().unwrap().to_vec()).unwrap();
                         out_judge.lock().unwrap().clear();
                         for line in result.split('\n') {
