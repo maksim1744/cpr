@@ -7,6 +7,8 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::Instant;
 
+use soup::prelude::*;
+
 use chrono::{Local};
 
 use indoc::indoc;
@@ -1046,6 +1048,30 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         } else {
             problem_names.push(args[i].clone());
             i += 1;
+        }
+    }
+
+    if let Some(ref url) = url {
+        if url.contains("codeforces.com") {
+            let response = reqwest::blocking::get(url).unwrap().text().unwrap();
+            let soup = Soup::new(&response);
+
+            let inputs: Vec<_> = soup.tag("div").class("input").find_all().map(|x| x.tag("pre").find().unwrap().display()).collect();
+            let inputs: Vec<_> = inputs.iter().map(|x| x.replace("<br>", "").replace("</br>", "\n").replace("<pre>", "").replace("</pre>", "")).collect();
+
+            let answers: Vec<_> = soup.tag("div").class("output").find_all().map(|x| x.tag("pre").find().unwrap().display()).collect();
+            let answers: Vec<_> = answers.iter().map(|x| x.replace("<br>", "").replace("</br>", "\n").replace("<pre>", "").replace("</pre>", "")).collect();
+
+            for i in 0..inputs.len() {
+                let test = first_available_test();
+                fs::File::create(&["in", &test.to_string()].concat()).unwrap().write(inputs[i].as_bytes()).unwrap();
+                if i < answers.len() {
+                    fs::File::create(&["ans", &test.to_string()].concat()).unwrap().write(answers[i].as_bytes()).unwrap();
+                }
+            }
+
+            println!("Parsed {} tests from codeforces", inputs.len());
+            return;
         }
     }
 
