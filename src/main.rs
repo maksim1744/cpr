@@ -31,13 +31,24 @@ mod draw;
 
 const LOCAL_PARAMS_NAME: &str = "params";
 
-const SETTINGS_FILE: &str = "C:/Users/magor/AppData/Local/cp_rust/settings.json";
-const SETTINGS_FILE_BASH: &str = "/mnt/c/Users/magor/AppData/Local/cp_rust/settings.json";
+#[cfg(not(target_os = "windows"))]
+const TEMPLATE_PATH: &str = "/home/maksim/snippets/";
+#[cfg(not(target_os = "windows"))]
+const PRECOMPILED_PATH: &str = "/home/maksim/precompiled/O2";
+#[cfg(not(target_os = "windows"))]
+const SETTINGS_FILE: &str = "/home/maksim/settings/settings.json";
+
+#[cfg(target_os = "windows")]
 const TEMPLATE_PATH: &str = "C:/Users/magor/AppData/Roaming/Sublime Text 3/Packages/User/Snippets/";
+#[cfg(target_os = "windows")]
+const PRECOMPILED_PATH: &str = "C:/MyPath/precompiled/O2";
+#[cfg(target_os = "windows")]
+const SETTINGS_FILE: &str = "C:/Users/magor/AppData/Local/cp_rust/settings.json";
 
 const OPEN_FILE_WITH: &str = "subl";
 const DEFAULT_FILE_NAME: &str = "main";
 const DEFAULT_FILE_EXTENSION: &str = "cpp";
+const OPEN_FILE_ON_CREATION: bool = true;
 const DEFAULT_TIMEOUT: f64 = 5.;
 
 enum ProblemSource {
@@ -420,7 +431,7 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
     print!("Compiling...");
     io::stdout().flush().unwrap();
 
-    let mut p = Popen::create(&"g++ --std=c++17 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -Wl,-stack,1073741824 -IC:/MyPath/precompiled/O2"
+    let mut p = Popen::create(&format!("g++ --std=c++17 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -DHOUSE -Winvalid-pch -Wl,-z,stack-size=1073741824 -I{}", PRECOMPILED_PATH)
         .split_whitespace().collect::<Vec<_>>(),
         PopenConfig {
             ..Default::default()
@@ -440,7 +451,7 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
     print!("\rStarting...");
     io::stdout().flush().unwrap();
 
-    let _result = Popen::create(&["cpr_tmp_file"], PopenConfig {
+    let _result = Popen::create(&[if cfg!(unix) { "./cpr_tmp_file" } else { "cpr_tmp_file" }], PopenConfig {
         ..Default::default()
     }).unwrap().wait();
 }
@@ -1311,7 +1322,13 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         add_param("main", full_name, params);
     }
 
-    std::process::Command::new(OPEN_FILE_WITH).arg(format!("{}:{}:{}", full_name, position.0, position.1)).output().unwrap();
+    if OPEN_FILE_ON_CREATION {
+        if OPEN_FILE_WITH == "subl" {
+            std::process::Command::new(OPEN_FILE_WITH).arg(format!("{}:{}:{}", full_name, position.0, position.1)).output().unwrap();
+        } else {
+            std::process::Command::new(OPEN_FILE_WITH).arg(format!("{}", full_name)).output().unwrap();
+        }
+    }
 }
 
 fn init_task(args: &Vec<String>, params: &mut HashMap<String, String>) {
@@ -1833,13 +1850,7 @@ fn extract_codeforces_csrf(html: &str) -> String {
 }
 
 fn get_login_password(source: &str) -> (String, String) {
-    let settings_file: &str;
-    if cfg!(unix) {
-        settings_file = SETTINGS_FILE_BASH;
-    } else {
-        settings_file = SETTINGS_FILE;
-    }
-    let settings: Value = match serde_json::from_str(& match fs::read_to_string(settings_file) {
+    let settings: Value = match serde_json::from_str(& match fs::read_to_string(SETTINGS_FILE) {
         Ok(x) => x,
         Err(_) => {
             eprintln!("Can't open \"settings.json\"");
