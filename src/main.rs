@@ -80,6 +80,7 @@ fn help() {
             stress              Run your solution on multiple generated tests to check it
             istress             Similar to stress, but combines all source files into one
             submit              Submits solution to OJ (now only codeforces)
+            splittest           Split multitest into multiple files
             test                Run your solutions on given tests in files like \"in123\"
             time                Measures execution time of a program
     "};
@@ -430,22 +431,7 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut file = fs::File::create("cpr_tmp_file.cpp").unwrap();
     file.write(&headers.join("\n").as_bytes()).unwrap();
 
-    print!("Compiling...");
-    io::stdout().flush().unwrap();
-
-    let mut p = Popen::create(&format!("g++ --std=c++17 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -DHOUSE -Winvalid-pch -Wl,-z,stack-size=1073741824 -I{}", PRECOMPILED_PATH)
-        .split_whitespace().collect::<Vec<_>>(),
-        PopenConfig {
-            ..Default::default()
-    }).unwrap();
-    p.wait().unwrap();
-    if let None = p.poll() {
-        p.terminate().unwrap();
-        return;
-    }
-    let result = p.poll().unwrap();
-
-    if !result.success() {
+    if !compile_cpr_tmp_file().is_ok() {
         return;
     }
 
@@ -1599,6 +1585,139 @@ fn measure_time(args: &Vec<String>, _params: &HashMap<String, String>) {
     eprintln!("time: {:.3}", duration);
 }
 
+fn split_test(args: &Vec<String>, _params: &HashMap<String, String>) {
+    if !args.is_empty() && args[0] == "--help" {
+        let s = indoc! {"
+            Usage: cpr splittest [filename] [input]
+
+            Splits multitest from [input] into single tests and puts them in folder \"tests\".
+            Needs C++ solution [filename] which has \"/* input-end */\" after reading input
+            for each test.
+
+            Flags:
+                --help              Display this message
+        "};
+        print!("{}", s);
+        return;
+    }
+
+    let mut filename = String::from(DEFAULT_FILE_NAME);
+    let mut input = String::new();
+
+    let mut i = 0;
+    let mut j = 0;
+
+    while i < args.len() {
+        if args[i].starts_with("-") {
+            eprintln!("Unknown flag \"{}\"", args[i]);
+            std::process::exit(1);
+        } else {
+            if j == 0 {
+                filename = args[i].clone();
+            } else if j == 1 {
+                input = args[i].clone();
+            } else {
+                eprintln!("Too many args");
+                std::process::exit(1);
+            }
+            j += 1;
+        }
+        i += 1;
+    }
+
+    if j != 2 {
+        eprintln!("Need two arguments");
+        std::process::exit(1);
+    }
+
+    filename = [filename, String::from("."), DEFAULT_FILE_EXTENSION.to_string()].concat();
+
+    let mut new_main: Vec<String> = Vec::new();
+    let file = fs::read_to_string(filename).unwrap().trim().to_string();
+    let file = file.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
+
+    let mut input_end_found = false;
+
+    for &line in file.iter() {
+        let mut token = String::new();
+        let mut res_line = String::new();
+
+        for c in line.chars() {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                token.push(c);
+            } else {
+                if token == "cin" {
+                    token = "fake_cin".to_string();
+                }
+                token.push(c);
+                res_line += &token;
+                token.clear();
+            }
+        }
+        res_line += &token;
+
+        new_main.push(res_line);
+
+        if line == "using namespace std;" {
+            new_main.push("stringstream fake_cin;".to_string());
+        } else if line.starts_with("int main(") {
+            new_main.push("    {".to_string());
+            new_main.push("        ios_base::sync_with_stdio(false); cin.tie(0); cout.tie(0);".to_string());
+            new_main.push("        string tmp;".to_string());
+            new_main.push("        while (getline(std::cin, tmp)) {".to_string());
+            new_main.push("            fake_cin << tmp << '\\n';".to_string());
+            new_main.push("        }".to_string());
+            new_main.push("    }".to_string());
+        } else if line.contains("/* input-end */") {
+            new_main.push("    cerr << fake_cin.tellg() << endl;".to_string());
+            new_main.push("    return;".to_string());
+            input_end_found = true;
+        }
+    }
+
+    if !input_end_found {
+        eprintln!("/* input-end */ not found");
+        std::process::exit(1);
+    }
+
+    let mut file = fs::File::create("cpr_tmp_file.cpp").unwrap();
+    file.write(&new_main.join("\n").as_bytes()).unwrap();
+
+    if !compile_cpr_tmp_file().is_ok() {
+        return;
+    }
+
+    print!("\r                                    ");
+    print!("\rRunning...");
+    io::stdout().flush().unwrap();
+
+    run_and_wait(&["cpr_tmp_file"], &input, "", None);
+
+    print!("\rCreating tests...");
+
+    let split_positions = fs::read_to_string("err").unwrap().trim().to_string();
+    let split_positions = split_positions.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
+    let mut split_positions = split_positions.iter().map(|x| x.parse::<usize>().unwrap()).collect::<Vec<usize>>();
+    split_positions.insert(0, 0);
+
+    let input = fs::read_to_string(input).unwrap().trim().to_string();
+    split_positions.insert(1, input.find('\n').unwrap());
+
+    fs::create_dir_all("tests").unwrap();
+    fs::remove_dir_all("tests").unwrap();
+    fs::create_dir_all("tests").unwrap();
+
+    for i in 1..split_positions.len()-1 {
+        let test = input[split_positions[i] + 1 .. split_positions[i + 1]].to_string();
+
+        let mut file = fs::File::create(format!("tests/{:0>3}", i)).unwrap();
+        file.write(&["1\n".to_string(), test, "\n".to_string()].concat().as_bytes()).unwrap();
+    }
+
+    print!("\r                                    ");
+    println!("\rCreated {} tests", split_positions.len() - 2);
+}
+
 // ************************************* main *************************************
 
 
@@ -1631,6 +1750,8 @@ fn main() {
         draw::draw(&args[1..].to_vec(), &params);
     } else if args[0] == "time" {
         measure_time(&args[1..].to_vec(), &params);
+    } else if args[0] == "splittest" {
+        split_test(&args[1..].to_vec(), &params);
     } else if args[0] == "todo" {
         println!("cpr test --check");
         println!("cpr param");
@@ -1933,4 +2054,27 @@ fn child_stream_to_vec<R>(mut stream: R) -> Arc<Mutex<Vec<u8>>> where R: Read + 
         })
         .expect("!thread");
     out
+}
+
+fn compile_cpr_tmp_file() -> Result<(), ()> {
+    print!("Compiling...");
+    io::stdout().flush().unwrap();
+
+    let mut p = Popen::create(&format!("g++ --std=c++17 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -DHOUSE -Winvalid-pch -Wl,-z,stack-size=1073741824 -I{}", PRECOMPILED_PATH)
+        .split_whitespace().collect::<Vec<_>>(),
+        PopenConfig {
+            ..Default::default()
+    }).unwrap();
+    p.wait().unwrap();
+    if let None = p.poll() {
+        p.terminate().unwrap();
+        return Err(());
+    }
+    let result = p.poll().unwrap();
+
+    if !result.success() {
+        return Err(())
+    }
+    print!("\r");
+    Ok(())
 }
