@@ -15,5 +15,6 @@ chrono = "0.4.19"
 serde_json = "1.0"
 rand = "0.7.3"
 termcolor = "1.1"
+threadpool = "1.8.1"
 
 druid = { git = "https://github.com/linebender/druid.git" }

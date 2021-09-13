@@ -29,6 +29,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::process::{Command, Stdio};
 
+use threadpool::ThreadPool;
+
 mod draw;
 
 const LOCAL_PARAMS_NAME: &str = "params";
@@ -75,6 +77,7 @@ fn help() {
             interact            Connects main.exe and interact.exe to test interactive problems
             mk                  Make file, write template to it and open it
             mktest              Make test case to test your solution
+            multirun            Run tests created by \"cpr splittest\" using multiple threads
             parse               Parse samples from url (now only codeforces, atcoder,
                                 codechef (sometimes works), cses, codingame)
             stress              Run your solution on multiple generated tests to check it
@@ -1718,6 +1721,153 @@ fn split_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     println!("\rCreated {} tests", split_positions.len() - 2);
 }
 
+fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
+    if !args.is_empty() && args[0] == "--help" {
+        let s = indoc! {"
+            Usage: cpr multirun [filename]
+
+            Flags:
+                --help              Display this message
+                -t [num]            Number of threads
+                -o [file]           Output filename
+        "};
+        print!("{}", s);
+        return;
+    }
+
+    let mut filename = String::from(DEFAULT_FILE_NAME);
+    let mut threads = 8;
+    let mut output: Option<String> = None;
+
+    let mut i = 0;
+
+    while i < args.len() {
+        if args[i] == "-t" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify number of threads after \"-t\"");
+                std::process::exit(1);
+            }
+            threads = args[i + 1].parse().unwrap();
+            i += 1;
+        } else if args[i] == "-o" {
+            if i + 1 == args.len() {
+                eprintln!("You need to specify output filename after \"-o\"");
+                std::process::exit(1);
+            }
+            output = Some(args[i + 1].clone());
+            i += 1;
+        } else if args[i].starts_with("-") {
+            eprintln!("Unknown flag \"{}\"", args[i]);
+            std::process::exit(1);
+        } else {
+            filename = args[i].clone();
+        }
+        i += 1;
+    }
+
+    filename = [filename, String::from("."), DEFAULT_FILE_EXTENSION.to_string()].concat();
+
+    let mut new_main: Vec<String> = Vec::new();
+    let file = fs::read_to_string(filename).unwrap().trim().to_string();
+    let file = file.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
+
+    for &line in file.iter() {
+        if line.starts_with("int main(") {
+            new_main.push("int main(int argc, char *argv[]) {".to_string());
+        } else if line.contains("cout << \"Case #\"") {
+            new_main.push(format!("{}cout << \"Case #\" << stoi(argv[1]) << \": \";",
+                String::from_utf8(vec![b' '; line.find('c').unwrap()]).unwrap()));
+        } else {
+            new_main.push(line.to_string());
+        }
+    }
+
+    let mut file = fs::File::create("cpr_tmp_file.cpp").unwrap();
+    file.write(&new_main.join("\n").as_bytes()).unwrap();
+
+    if !compile_cpr_tmp_file().is_ok() {
+        return;
+    }
+
+    print!("\r                                    ");
+    print!("\r");
+    io::stdout().flush().unwrap();
+
+    let mut tests = fs::read_dir("tests")
+        .unwrap()
+        .map(|x| x.unwrap())
+        .map(|x| (x.path().file_name().unwrap().to_str().unwrap().to_string(), x.metadata().unwrap().len()))
+        .collect::<Vec<_>>();
+    tests.sort_by(|a, b| b.1.cmp(&a.1));
+    let tests = tests.into_iter()
+        .map(|(x, _)| x)
+        .filter(|x| !x.contains('_'))
+        .collect::<Vec<_>>();
+
+    print!(" ");
+    for i in 0..tests.len() {
+        print!("{}", (i + 1) % 10);
+    }
+    println!();
+
+    let result_string_mutex = Arc::new(Mutex::new(Vec::<u8>::new()));
+    for c in format!("[{}]", String::from_utf8(vec![b' '; tests.len()]).unwrap()).chars() {
+        result_string_mutex.lock().unwrap().push(c as u8);
+    }
+    print!("{}", String::from_utf8(result_string_mutex.lock().unwrap().to_vec()).unwrap());
+    io::stdout().flush().unwrap();
+
+    let failed_tests = Arc::new(Mutex::new(0));
+
+    let pool = ThreadPool::new(threads);
+
+    for input in tests.iter() {
+        let input = input.clone();
+        let local_result_string = result_string_mutex.clone();
+        let local_failed_tests = failed_tests.clone();
+
+        pool.execute(move || {
+            let test_num = input.parse::<usize>().unwrap();
+
+            local_result_string.lock().unwrap()[test_num] = b'.';
+            print!("\r{}", String::from_utf8(local_result_string.lock().unwrap().to_vec()).unwrap());
+            io::stdout().flush().unwrap();
+
+            let result = run_and_wait(&["cpr_tmp_file", &input], &format!("tests/{}", input), &format!("tests/{}_out", input), None);
+
+            if result.success() {
+                local_result_string.lock().unwrap()[test_num] = b'+';
+            } else {
+                local_result_string.lock().unwrap()[test_num] = b'X';
+                *local_failed_tests.lock().unwrap() += 1;
+            }
+            print!("\r{}", String::from_utf8(local_result_string.lock().unwrap().to_vec()).unwrap());
+            io::stdout().flush().unwrap();
+        });
+    }
+
+    pool.join();
+    println!("");
+
+    if *failed_tests.lock().unwrap() != 0 {
+        let mut stdout = StandardStream::stdout(ColorChoice::Always);
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+        writeln!(&mut stdout, "failed {} tests", failed_tests.lock().unwrap()).unwrap();
+        stdout.set_color(&ColorSpec::new()).unwrap();
+    }
+
+    if let Some(output) = output {
+        let mut tests = tests;
+        tests.sort();
+        let mut res = String::new();
+        for input in tests.iter() {
+            res += &fs::read_to_string(&format!("tests/{}_out", input)).unwrap().to_string();
+        }
+        let mut file = fs::File::create(output).unwrap();
+        file.write(&res.as_bytes()).unwrap();
+    }
+}
+
 // ************************************* main *************************************
 
 
@@ -1752,11 +1902,10 @@ fn main() {
         measure_time(&args[1..].to_vec(), &params);
     } else if args[0] == "splittest" {
         split_test(&args[1..].to_vec(), &params);
+    } else if args[0] == "multirun" {
+        multirun(&args[1..].to_vec(), &params);
     } else if args[0] == "todo" {
-        println!("cpr test --check");
         println!("cpr param");
-        println!("cpr interact");
-        println!("cpr time");
     } else {
         eprintln!("Unknown option \"{}\"", args[0]);
         std::process::exit(1);
