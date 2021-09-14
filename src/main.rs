@@ -442,7 +442,7 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
     print!("\rStarting...");
     io::stdout().flush().unwrap();
 
-    let _result = Popen::create(&[if cfg!(unix) { "./cpr_tmp_file" } else { "cpr_tmp_file" }], PopenConfig {
+    let _result = Popen::create(&[fix_unix_filename("cpr_tmp_file")], PopenConfig {
         ..Default::default()
     }).unwrap().wait();
 }
@@ -1559,9 +1559,7 @@ fn measure_time(args: &Vec<String>, _params: &HashMap<String, String>) {
         filename_vec.extend(item.split_whitespace().map(|x| String::from(x)).collect::<Vec<_>>());
     }
 
-    if cfg!(unix) {
-        filename_vec[0] = ["./", &filename_vec[0]].concat().to_string();
-    }
+    fix_unix_filename_vec(&mut filename_vec);
 
     let now = Instant::now();
     let mut p = match Popen::create(&filename_vec[..], PopenConfig {
@@ -1833,7 +1831,7 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
             print!("\r{}", String::from_utf8(local_result_string.lock().unwrap().to_vec()).unwrap());
             io::stdout().flush().unwrap();
 
-            let result = run_and_wait(&["cpr_tmp_file", &input], &format!("tests/{}", input), &format!("tests/{}_out", input), None);
+            let result = run_and_wait(&[&fix_unix_filename("cpr_tmp_file"), &input], &format!("tests/{}", input), &format!("tests/{}_out", input), None);
 
             if result.success() {
                 local_result_string.lock().unwrap()[test_num] = b'+';
@@ -1904,8 +1902,6 @@ fn main() {
         split_test(&args[1..].to_vec(), &params);
     } else if args[0] == "multirun" {
         multirun(&args[1..].to_vec(), &params);
-    } else if args[0] == "todo" {
-        println!("cpr param");
     } else {
         eprintln!("Unknown option \"{}\"", args[0]);
         std::process::exit(1);
@@ -1914,6 +1910,20 @@ fn main() {
 
 
 // *********************************** internal ***********************************
+
+fn fix_unix_filename(filename: &str) -> String {
+    if cfg!(unix) && !filename.starts_with("./") {
+        ["./", filename].concat().to_string()
+    } else {
+        filename.to_string()
+    }
+}
+
+fn fix_unix_filename_vec(filename_vec: &mut Vec<String>) {
+    if filename_vec.len() == 1 {
+        filename_vec[0] = fix_unix_filename(&filename_vec[0]);
+    }
+}
 
 fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) -> ExitStatus {
     let stdin = match fin {
@@ -1930,9 +1940,7 @@ fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) 
         filename_vec.extend(item.split(" ").map(|x| String::from(x)).collect::<Vec<_>>());
     }
 
-    if cfg!(unix) {
-        filename_vec[0] = ["./", &filename_vec[0]].concat().to_string();
-    }
+    fix_unix_filename_vec(&mut filename_vec);
 
     let mut p = match Popen::create(&filename_vec[..], PopenConfig {
         stdin: stdin,
@@ -1942,7 +1950,7 @@ fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) 
     }) {
         Ok(x) => x,
         Err(_) => {
-            eprintln!("Error when starting process {:?}", filename);
+            eprintln!("Error when starting process {:?}", filename_vec);
             std::process::exit(1)
         }
     };
