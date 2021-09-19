@@ -200,7 +200,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     loop {
         print!("Case #{}:  ", case);
         io::stdout().flush().unwrap();
-        let result = run_and_wait(&[&gen_str, &seed.to_string()], "", "in", Some(timeout));
+        let result = run_and_wait(&[&fix_unix_filename(&gen_str), &seed.to_string()], "", "in", Some(timeout));
         if !result.success() {
             println!("X  [seed = {}]", seed);
             break;
