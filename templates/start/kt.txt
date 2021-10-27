@@ -1,0 +1,74 @@
+/*
+    author:  Maksim1744
+    created: ${1:date}
+*/
+
+[[type:start]]fun main() {
+[[type:tstart]]fun test_case() {
+    $0
+}
+
+/*
+
+read array: readLine()!!.split(' ').map{ it.toInt() }.toMutableList()
+
+var mp = HashMap<Int, Int>();
+mp.getValue(k)
+if (mp.contains(k))
+mp.put(a, b)
+
+val s = StringBuilder("test");
+s[0] = 'g';
+s.append(s);
+println(s); // gestgest
+
+
+
+credits: aleks5d
+
+Сделай быстрый ввод и вывод
+Код Бенка отлично подойдет)))
+
+компиляция:
+kotlinc A.kt -include-runtime -d A.jar
+java -jar A.jar
+
+Кеки и приколы:
+Pair<T1, T2> - Пара
+Pair(a, b) - создать пару
+будет ругаться и не выделять - забей
+
+в функцию (почему то ?) передается объект а не копия
+не изменяй ничего в функции!
+
+бенк говорит не делать так, почему?
+сортировать : arr.sort()
+если там пары/структуры и тд то 
+arr.sortWith(compareBy({it.first}, {it.second})) или arr.sortWith(compareBy({it[0]}, {it[1]})) чо та такое
+
+ъуъ до слез 
+вектор это ArrayList
+ArrayList<Int>()
+push_back = add
+pop_back = removeAt(lastIndex)
+arrayListOf()
+list.binarySearch()
+
+HashMap<String,Int>()
+
+PriorityQueue<Pair<Long,Int>>({x,y ->
+    x.first.compareTo(y.first)})
+
+var A = arrayListOf(Pair(1,3),Pair(2,2),Pair(3,1))
+val B = A.sortedWith(Comparator<Pair<Int,Int>>{x,y ->
+    x.second.compareTo(y.second)})
+
+о еще можно писать функции внутри функции чтобы не париться с глобальностью переменных )))
+*/
+[[type:tstart]]
+[[type:tstart]]fun main() {
+[[type:tstart]]    var t = readLine()!!.toInt()
+[[type:tstart]]    for (test in 1..t) {
+[[type:tstart]]        test_case()
+[[type:tstart]]    }
+[[type:tstart]]}

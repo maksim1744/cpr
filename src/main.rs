@@ -36,14 +36,10 @@ mod draw;
 const LOCAL_PARAMS_NAME: &str = "params";
 
 #[cfg(not(target_os = "windows"))]
-const TEMPLATE_PATH: &str = "/home/maksim/tools/snippets/";
-#[cfg(not(target_os = "windows"))]
 const PRECOMPILED_PATH: &str = "/home/maksim/tools/precompiled/O2";
 #[cfg(not(target_os = "windows"))]
 const SETTINGS_FILE: &str = "/home/maksim/tools/settings/settings.json";
 
-#[cfg(target_os = "windows")]
-const TEMPLATE_PATH: &str = "C:/Users/magor/AppData/Roaming/Sublime Text 3/Packages/User/Snippets/";
 #[cfg(target_os = "windows")]
 const PRECOMPILED_PATH: &str = "C:/MyPath/precompiled/O2";
 #[cfg(target_os = "windows")]
@@ -368,17 +364,14 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
         i += 1;
     }
 
-    let mut exe_path = std::env::current_exe().unwrap();
-    exe_path.pop();
-    exe_path.pop();
-    exe_path.pop();
+    let mut template_file = get_templates_path();
     if check {
-        exe_path.push("stress_test_check_template.cpp");
+        template_file.push("stress_test_check_template.cpp");
     } else {
-        exe_path.push("stress_test_template.cpp");
+        template_file.push("stress_test_template.cpp");
     }
-    let exe_path = exe_path.to_str().unwrap();
-    let template = fs::read_to_string(exe_path).unwrap().trim().to_string();
+    let template_file = template_file.to_str().unwrap();
+    let template = fs::read_to_string(template_file).unwrap().trim().to_string();
     let template = template.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
 
     let mut result: Vec<String> = Vec::new();
@@ -1276,44 +1269,59 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
 
     let mut file = fs::File::create(&full_name).unwrap();
 
-    let mut folder = String::from(TEMPLATE_PATH);
-    if extension == "cpp" {
-        folder.push_str("C++/");
-    } else if extension == "rs" {
-        folder.push_str("Rust/");
-    } else if extension == "c" {
-        folder.push_str("C/");
-    } else if extension == "kt" {
-        folder.push_str("Kotlin/");
-    } else if extension == "java" {
-        folder.push_str("Java/");
-    } else if extension == "go" {
-        folder.push_str("Go/");
-    } else {
-        folder.clear();
-    }
+    let template_type = match template_type {
+        TemplateType::Start => "start",
+        TemplateType::Tstart => "tstart",
+        TemplateType::Gcj => "gcj",
+        TemplateType::Gstart => "gstart"
+    };
+
+    let mut template_path = get_templates_path();
+    template_path.push("start");
+    template_path.push(format!("{}.txt", extension));
 
     let mut position = (0, 0);
 
-    if !folder.is_empty() {
-        let mut available_templates: Vec<_> = fs::read_dir(&folder).unwrap().map(|x| x.unwrap().path().file_name().unwrap().to_str().unwrap().to_string()).collect();
-        available_templates.retain(|x| x.ends_with(".sublime-snippet"));
-        available_templates = available_templates.iter().map(|x| x.replace(".sublime-snippet", "")).collect();
+    let template_base = fs::read_to_string(template_path);
+    if let Ok(template_base) = template_base {
+        let template_base = template_base.trim().to_string();
+        let template_base = template_base.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
 
-        let mut template = "start";
-        match template_type {
-            TemplateType::Tstart => if available_templates.contains(&"tstart".to_string()) { template = "tstart"; },
-            TemplateType::Gstart => if available_templates.contains(&"gstart".to_string()) { template = "gstart"; },
-            TemplateType::Gcj    => if available_templates.contains(&"gcj"   .to_string()) { template = "gcj";    },
-            _ => (),
+        let get_filtered_line = |line: &str| -> Option<String> {
+            let mut ind: usize = 0;
+            while ind < line.len() {
+                if !line[ind..].starts_with("[[") {
+                    return Some(line[ind..].to_string());
+                }
+                let next_ind = line[ind..].find("]]").unwrap() + ind;
+                let filter = line[ind+2..next_ind].split(':').collect::<Vec<_>>();
+                let filter_type = filter[0];
+                let values = filter[1].split('|').collect::<Vec<_>>();
+
+                let good_line = match filter_type {
+                    "os" => values.contains(&env::consts::OS),
+                    "type" => values.contains(&template_type),
+                    _ => false
+                };
+                if !good_line {
+                    return None;
+                }
+                ind = next_ind + 2;
+            }
+            return Some("".to_string());
+        };
+
+        let mut template = String::new();
+
+        for line in template_base.iter() {
+            if let Some(line) = get_filtered_line(line) {
+                template += &line;
+                template.push('\n');
+            }
         }
 
-        let mut template = fs::read_to_string(&[&folder, template, ".sublime-snippet"].concat()).unwrap().trim().to_string();
-        let ir = template.find("]]></content>").unwrap();
-        let il = template.find("<![CDATA[").unwrap() + "<![CDATA[".len();
-
         let now = Local::now();
-        template = template[il..ir].replace("\\$", "$").replace("${1:date}", &now.format("%d.%m.%Y %H:%M:%S").to_string()).to_string();
+        template = template.replace("\\$", "$").replace("${1:date}", &now.format("%d.%m.%Y %H:%M:%S").to_string()).to_string();
 
         let mut cursor_expr = "$0";
         if template.contains("${0:}") {
@@ -2236,4 +2244,13 @@ fn compile_cpr_tmp_file() -> Result<(), ()> {
     }
     print!("\r");
     Ok(())
+}
+
+fn get_templates_path() -> std::path::PathBuf {
+    let mut exe_path = std::env::current_exe().unwrap();
+    exe_path.pop();
+    exe_path.pop();
+    exe_path.pop();
+    exe_path.push("templates");
+    exe_path
 }
