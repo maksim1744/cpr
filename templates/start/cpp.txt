@@ -37,8 +37,8 @@ template<typename T, typename U> void umax(T& a, U b){if (a < b) a = b;}
 
 #ifdef HOME
 #define SHOW_COLORS
-[[os:windows]]#include "C:/C++ libs/print.cpp"
-[[os:linux]]#include "/mnt/c/C++ libs/print.cpp"
+[[os:windows]]#include "C:/Libs/tools/print.cpp"
+[[os:linux]]#include "/mnt/c/Libs/tools/print.cpp"
 #else
 #define show(...) void(0)
 #define debugf(fun)   fun
@@ -49,8 +49,8 @@ template<typename T, typename U> void umax(T& a, U b){if (a < b) a = b;}
 #endif
 
 [[type:gstart]]#ifdef HOUSE
-[[type:gstart]][[os:windows]]#include "C:/C++ libs/gen.cpp"
-[[type:gstart]][[os:linux]]#include "/mnt/c/C++ libs/gen.cpp"
+[[type:gstart]][[os:windows]]#include "C:/Libs/tools/gen.cpp"
+[[type:gstart]][[os:linux]]#include "/mnt/c/Libs/tools/gen.cpp"
 [[type:gstart]]#endif
 [[type:tstart|gcj]]void test_case(int test) {
 [[type:tstart|gcj]]    ${0:}
