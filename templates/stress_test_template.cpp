@@ -9,7 +9,6 @@ stringstream cin, cout, cerr;
 }
 
 namespace gen_sol {
-using namespace gen;
 stringstream cin, cout, cerr;
 //->gen
 }

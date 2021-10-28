@@ -2225,7 +2225,7 @@ fn compile_cpr_tmp_file() -> Result<(), ()> {
     print!("Compiling...");
     io::stdout().flush().unwrap();
 
-    let mut p = Popen::create(&format!("g++ --std=c++17 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -DHOUSE -Winvalid-pch {} -I{}",
+    let mut p = Popen::create(&format!("g++ --std=c++20 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -DHOUSE -Winvalid-pch {} -I{}",
                                        if cfg!(unix) { "" } else { "-Wl,-stack,1073741824" },
                                        PRECOMPILED_PATH)
         .split_whitespace().collect::<Vec<_>>(),
