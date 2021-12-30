@@ -14,6 +14,8 @@ pub struct Config {
     pub skip_tests: Option<Vec<usize>>,
     pub precision: Option<usize>,
 
+    pub threads: Option<usize>,
+
     // cmds
     pub main:     Option<Vec<String>>,
     pub scorer:   Option<Vec<String>>,

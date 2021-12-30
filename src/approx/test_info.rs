@@ -1,7 +1,5 @@
 use std::io::Write;
 
-use chrono::Local;
-
 use termion::color;
 
 use crate::approx::data::*;
@@ -39,7 +37,7 @@ impl TestInfo {
             state: TestState::Running,
             prev_score: None,
             new_score: None,
-            time: Local::now().format("%H:%M:%S").to_string(),
+            time: String::new(),
             result: TestResult::Same,
         }
     }
