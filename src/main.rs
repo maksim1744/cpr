@@ -32,6 +32,10 @@ use std::process::{Command, Stdio};
 use threadpool::ThreadPool;
 
 mod draw;
+mod approx;
+mod util;
+
+use crate::util::*;
 
 const LOCAL_PARAMS_NAME: &str = "params";
 
@@ -1910,6 +1914,8 @@ fn main() {
         split_test(&args[1..].to_vec(), &params);
     } else if args[0] == "multirun" {
         multirun(&args[1..].to_vec(), &params);
+    } else if args[0] == "approx" {
+        approx::approx(&args[1..].to_vec(), &params);
     } else {
         eprintln!("Unknown option \"{}\"", args[0]);
         std::process::exit(1);
@@ -1918,20 +1924,6 @@ fn main() {
 
 
 // *********************************** internal ***********************************
-
-fn fix_unix_filename(filename: &str) -> String {
-    if cfg!(unix) && !filename.starts_with("./") {
-        ["./", filename].concat().to_string()
-    } else {
-        filename.to_string()
-    }
-}
-
-fn fix_unix_filename_vec(filename_vec: &mut Vec<String>) {
-    if filename_vec.len() == 1 {
-        filename_vec[0] = fix_unix_filename(&filename_vec[0]);
-    }
-}
 
 fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) -> ExitStatus {
     let stdin = match fin {
