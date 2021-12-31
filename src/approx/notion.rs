@@ -10,11 +10,64 @@ use chrono::Local;
 use crate::approx::data::*;
 use crate::approx::test_info::*;
 
+use reqwest::blocking::{Client, Request};
+
 #[derive(Debug, Clone)]
 struct NotionBlock {
     pub block_id: String,
     pub page_id: String,
     pub score_id: String,
+}
+
+struct ClientWrapper {
+    client: Client
+}
+
+impl ClientWrapper {
+    fn new(client: Client) -> Self {
+        ClientWrapper {
+            client,
+        }
+    }
+
+    fn client(&self) -> &Client {
+        &self.client
+    }
+
+    fn execute(&self, request: Request, file: &mut File) -> Option<Value> {
+        let num_tries = 10;
+        for _ in 0..num_tries {
+            let request = request.try_clone().unwrap();
+            let response = self.client.execute(request);
+            if let Ok(response) = response {
+                if response.status().as_u16() != 429 {
+                    if response.status().is_success() {
+                        let response = response.text().unwrap();
+                        let data: Value = match serde_json::from_str(&response) {
+                            Ok(x) => x,
+                            Err(e) => {
+                                file.write(format!("Can't parse json from response, {}\n", e).as_bytes()).unwrap();
+                                return None;
+                            }
+                        };
+                        return Some(data);
+                    } else {
+                        file.write(format!("Return code {}, {}\n",
+                            response.status().as_u16(),
+                            response.text().unwrap()).as_bytes()).unwrap();
+                        return None;
+                    }
+                } else {
+                    file.write(format!("Hit ratelimit\n").as_bytes()).unwrap();
+                }
+            } else {
+                file.write(format!("Can't send request, {}\n", response.unwrap_err()).as_bytes()).unwrap();
+            }
+            thread::sleep(time::Duration::from_millis(1000));
+        }
+        file.write(format!("All retries unsuccessful\n").as_bytes()).unwrap();
+        None
+    }
 }
 
 pub fn start_updates(
@@ -24,7 +77,7 @@ pub fn start_updates(
 ) {
     let mut file = File::create("err").unwrap();
 
-    let client = reqwest::blocking::Client::new();
+    let client = ClientWrapper::new(Client::new());
 
     let block = match create_block(&config.notion.as_ref().unwrap(), &mut file, &client) {
         Some(x) => x,
@@ -45,29 +98,23 @@ pub fn start_updates(
 fn create_block(
     notion: &NotionConfig,
     file: &mut File,
-    client: &reqwest::blocking::Client
+    client: &ClientWrapper
 ) -> Option<NotionBlock> {
     let db = &notion.database;
     let key = &notion.key;
 
     // querying db for columns
-    let response = client.get(&format!("https://api.notion.com/v1/databases/{}", db))
+    let response = client.client().get(&format!("https://api.notion.com/v1/databases/{}", db))
         .header("Authorization", format!("Bearer {}", key))
         .header("Notion-Version", "2021-08-16")
-        .send().unwrap();
+        .build().unwrap();
 
-    if !response.status().is_success() {
+    let response = client.execute(response, file);
+    if !response.is_some() {
         file.write(b"Can't read database\n").unwrap();
         return None;
     }
-
-    let data: Value = match serde_json::from_str(&response.text().unwrap()) {
-        Ok(x) => x,
-        Err(e) => {
-            file.write(format!("Can't parse json from response, {}\n", e).as_bytes()).unwrap();
-            return None;
-        }
-    };
+    let data = response.unwrap();
 
     let timestamp_id = match data["properties"]["Timestamp"]["id"].as_str() {
         Some(x) => x,
@@ -101,24 +148,18 @@ fn create_block(
         }
     });
 
-    let response = client.post("https://api.notion.com/v1/pages")
+    let response = client.client().post("https://api.notion.com/v1/pages")
         .header("Authorization", format!("Bearer {}", key))
         .header("Notion-Version", "2021-08-16")
         .json(&data)
-        .send().unwrap();
+        .build().unwrap();
 
-    if !response.status().is_success() {
+    let response = client.execute(response, file);
+    if !response.is_some() {
         file.write(b"Can't create page\n").unwrap();
         return None;
     }
-
-    let data: Value = match serde_json::from_str(&response.text().unwrap()) {
-        Ok(x) => x,
-        Err(e) => {
-            file.write(format!("Can't parse json from create-page response, {}\n", e).as_bytes()).unwrap();
-            return None;
-        }
-    };
+    let data = response.unwrap();
 
     let page_id = match data["id"].as_str() {
         Some(x) => x,
@@ -140,30 +181,23 @@ fn create_block(
         }]
     });
 
-    let response = client.patch(&format!("https://api.notion.com/v1/blocks/{}/children", page_id))
+    let response = client.client().patch(&format!("https://api.notion.com/v1/blocks/{}/children", page_id))
         .header("Authorization", format!("Bearer {}", key))
         .header("Notion-Version", "2021-08-16")
         .json(&data)
-        .send().unwrap();
+        .build().unwrap();
 
-    if !response.status().is_success() {
+    let response = client.execute(response, file);
+    if !response.is_some() {
         file.write(b"Can't create block\n").unwrap();
         return None;
     }
-
-    let response = response.text().unwrap();
-    let data: Value = match serde_json::from_str(&response) {
-        Ok(x) => x,
-        Err(e) => {
-            file.write(format!("Can't parse json from create-block response, {}\n", e).as_bytes()).unwrap();
-            return None;
-        }
-    };
+    let data = response.unwrap();
 
     let block_id = match data["results"][0]["id"].as_str() {
         Some(x) => x,
         None => {
-            file.write(format!("Can't read block id from response {}\n", response).as_bytes()).unwrap();
+            file.write(format!("Can't read block id from response {}\n", data).as_bytes()).unwrap();
             return None;
         }
     }.to_string();
@@ -179,7 +213,7 @@ fn update_table(
     config: &Config,
     block: &NotionBlock,
     tests_info: Vec<TestInfo>,
-    client: &reqwest::blocking::Client,
+    client: &ClientWrapper,
     file: &mut File,
     total_score: &Option<String>,
 ) {
@@ -226,17 +260,15 @@ fn update_table(
         }
     });
 
-    let response = client.patch(&format!("https://api.notion.com/v1/blocks/{}", block.block_id))
+    let response = client.client().patch(&format!("https://api.notion.com/v1/blocks/{}", block.block_id))
         .header("Authorization", format!("Bearer {}", config.notion.as_ref().unwrap().key))
         .header("Notion-Version", "2021-08-16")
         .json(&data)
-        .send().unwrap();
+        .build().unwrap();
 
-    if !response.status().is_success() {
-        file.write(format!(
-            "[{}] Can't update table, {}",
-            Local::now().format("%Y-%m-%d %H:%M:%S"),
-            response.text().unwrap()).as_bytes()).unwrap();
+    let response = client.execute(response, file);
+    if !response.is_some() {
+        file.write(b"Can't update table\n").unwrap();
     }
 }
 
@@ -244,7 +276,7 @@ fn update_total_score(
     config: &Config,
     block: &NotionBlock,
     file: &mut File,
-    client: &reqwest::blocking::Client,
+    client: &ClientWrapper,
     total_score: &str,
 ) {
     let data = serde_json::json!({
@@ -257,18 +289,14 @@ fn update_total_score(
         }
     });
 
-    for _ in 0..3 {
-        let response = client.patch(&format!("https://api.notion.com/v1/pages/{}", block.page_id))
-            .header("Authorization", format!("Bearer {}", config.notion.as_ref().unwrap().key))
-            .header("Notion-Version", "2021-08-16")
-            .json(&data)
-            .send().unwrap();
+    let response = client.client().patch(&format!("https://api.notion.com/v1/pages/{}", block.page_id))
+        .header("Authorization", format!("Bearer {}", config.notion.as_ref().unwrap().key))
+        .header("Notion-Version", "2021-08-16")
+        .json(&data)
+        .build().unwrap();
 
-        if response.status().is_success() {
-            break;
-        }
-
-        file.write(&format!("Can't update page, {}\n", response.text().unwrap()).as_bytes()).unwrap();
-        thread::sleep(time::Duration::from_millis(1000));
+    let response = client.execute(response, file);
+    if !response.is_some() {
+        file.write(b"Can't update total score\n").unwrap();
     }
 }
