@@ -116,14 +116,12 @@ impl TestLog {
         let date = mtime::get_date(config.time_offset.unwrap());
         let time = mtime::get_time(config.time_offset.unwrap());
 
-        let data = serde_json::json!({
-            "code": {
-                "text": [{"type": "text", "text": {"content":
-                    content.to_owned() + &format!("\nLast update: {} {}", date, time)
-                }, "annotations": {"color": "default"}}],
-                "language": "plain text"
-            }
-        });
+        let data = NotionTextChunk::chunks_to_notion_content(NotionTextChunk::fix_chunks_length(vec![
+            NotionTextChunk::new(
+                &(content.to_owned() + &format!("\nLast update: {} {}", date, time)),
+                "default",
+            )
+        ]));
 
         let response = client.client().patch(&format!("https://api.notion.com/v1/blocks/{}", self.block_id))
             .header("Authorization", format!("Bearer {}", config.notion.as_ref().unwrap().key))

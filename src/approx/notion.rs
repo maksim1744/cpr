@@ -4,8 +4,6 @@ use std::fs;
 use std::io::prelude::*;
 use std::{thread, time};
 
-use serde_json::Value;
-
 use crate::approx::data::*;
 use crate::approx::test_info::*;
 use crate::approx::client_wrapper::*;
@@ -156,35 +154,8 @@ fn update_table(
         "default"
     ));
 
-    let mut merged_chunks: Vec<NotionTextChunk> = Vec::new();
-    for chunk in content.into_iter() {
-        if merged_chunks.is_empty() || merged_chunks.last().unwrap().color != chunk.color ||
-           merged_chunks.last().unwrap().link.is_some() || chunk.link.is_some() ||
-           merged_chunks.last().unwrap().text.len() + chunk.text.len() > 2000 {
-            merged_chunks.push(chunk);
-        } else {
-            merged_chunks.last_mut().unwrap().text += &chunk.text;
-        }
-    }
-
-    let mut json_content: Vec<Value> = Vec::new();
-    for item in merged_chunks {
-        let mut data = serde_json::json!({
-            "type": "text", "text": {"content": item.text.clone()}, "annotations": {"color": item.color.clone()}
-        });
-        if let Some(link) = item.link {
-            data["text"]["link"]["url"] = serde_json::Value::String(link.clone());
-        }
-        json_content.push(data);
-    }
-
-
-    let data = serde_json::json!({
-        "code": {
-            "text": json_content,
-            "language": "plain text"
-        }
-    });
+    let content = NotionTextChunk::fix_chunks_length(content);
+    let data = NotionTextChunk::chunks_to_notion_content(content);
 
     let response = client.client().patch(&format!("https://api.notion.com/v1/blocks/{}", block.block_id))
         .header("Authorization", format!("Bearer {}", config.notion.as_ref().unwrap().key))
