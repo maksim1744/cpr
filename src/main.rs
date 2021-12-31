@@ -71,6 +71,7 @@ fn help() {
         Use \"cpr [option] --help\" to know more about specific option
 
         Options:
+            approx              Solve approximation problems when you need to submit only answer
             draw                Draws something
             help                Display this message
             init                Inits directory with main file and parses samples
