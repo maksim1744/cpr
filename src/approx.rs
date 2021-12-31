@@ -58,7 +58,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let mut handle: Option<thread::JoinHandle<_>> = None;
 
-    if config.notion.is_some() {
+    if config.notion.is_some() && !norun {
         let tests_info = tests_info.clone();
         let total_score = total_score_string.clone();
         let config = config.clone();
