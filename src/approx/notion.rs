@@ -190,7 +190,8 @@ fn update_table(
     let mut merged_chunks: Vec<NotionTextChunk> = Vec::new();
     for chunk in content.into_iter() {
         if merged_chunks.is_empty() || merged_chunks.last().unwrap().color != chunk.color ||
-                                       merged_chunks.last().unwrap().link.is_some() || chunk.link.is_some() {
+           merged_chunks.last().unwrap().link.is_some() || chunk.link.is_some() ||
+           merged_chunks.last().unwrap().text.len() + chunk.text.len() > 2000 {
             merged_chunks.push(chunk);
         } else {
             merged_chunks.last_mut().unwrap().text += &chunk.text;
