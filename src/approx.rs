@@ -6,8 +6,6 @@ use std::io::{Write, stdout};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use chrono::Local;
-
 use subprocess::{Popen, PopenConfig, Redirection};
 
 use termion::raw::IntoRawMode;
@@ -23,6 +21,7 @@ mod data;
 mod test_info;
 mod test_log;
 mod client_wrapper;
+mod mtime;
 
 use data::*;
 use test_info::*;
@@ -165,7 +164,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
             }
 
             // run solution
-            test_info.time = Local::now().format("%H:%M:%S").to_string();
+            test_info.time = mtime::get_time(config.time_offset.unwrap());
             test_info.state = TestState::Running;
             update_tests_info(&test_info);
             if !norun {
@@ -325,6 +324,10 @@ fn read_config() -> Config {
 
     if config.threads.is_none() {
         config.threads = Some(1);
+    }
+
+    if config.time_offset.is_none() {
+        config.time_offset = Some(60 * 60 * 3);
     }
 
     config

@@ -1,10 +1,9 @@
 use std::fs::File;
 use std::io::Write;
 
-use chrono::Local;
-
 use crate::approx::client_wrapper::*;
 use crate::approx::data::*;
+use crate::approx::mtime;
 
 #[derive(Debug)]
 pub struct TestLog {
@@ -12,6 +11,7 @@ pub struct TestLog {
     pub content: Option<String>,
     pub page_id: String,
     pub block_id: String,
+    pub last_update: String,
 }
 
 impl TestLog {
@@ -21,6 +21,7 @@ impl TestLog {
             content: None,
             page_id: String::new(),
             block_id: String::new(),
+            last_update: String::new(),
         }
     }
 
@@ -112,10 +113,13 @@ impl TestLog {
             return;
         }
 
+        let date = mtime::get_date(config.time_offset.unwrap());
+        let time = mtime::get_time(config.time_offset.unwrap());
+
         let data = serde_json::json!({
             "code": {
                 "text": [{"type": "text", "text": {"content":
-                    content.to_owned() + &format!("\nLast update: {}", Local::now().format("%Y-%m-%d %H:%M:%S"))
+                    content.to_owned() + &format!("\nLast update: {} {}", date, time)
                 }, "annotations": {"color": "default"}}],
                 "language": "plain text"
             }
@@ -134,5 +138,6 @@ impl TestLog {
         }
 
         self.content = Some(content.to_string());
+        self.last_update = time;
     }
 }

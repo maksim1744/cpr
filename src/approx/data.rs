@@ -16,6 +16,8 @@ pub struct Config {
 
     pub threads: Option<usize>,
 
+    pub time_offset: Option<i64>,
+
     // cmds
     pub main:     Option<Vec<String>>,
     pub scorer:   Option<Vec<String>>,

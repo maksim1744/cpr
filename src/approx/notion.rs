@@ -6,12 +6,11 @@ use std::{thread, time};
 
 use serde_json::Value;
 
-use chrono::Local;
-
 use crate::approx::data::*;
 use crate::approx::test_info::*;
 use crate::approx::client_wrapper::*;
 use crate::approx::test_log::*;
+use crate::approx::mtime;
 
 use reqwest::blocking::Client;
 
@@ -24,7 +23,7 @@ pub fn start_updates(
 
     let client = ClientWrapper::new(Client::new());
 
-    let block = match create_block(&config.notion.as_ref().unwrap(), &mut file, &client) {
+    let block = match create_block(&config, &mut file, &client) {
         Some(x) => x,
         None => {
             return;
@@ -43,10 +42,11 @@ pub fn start_updates(
 }
 
 fn create_block(
-    notion: &NotionConfig,
+    config: &Config,
     file: &mut File,
     client: &ClientWrapper
 ) -> Option<NotionBlock> {
+    let notion = &config.notion.as_ref().unwrap();
     let db = &notion.database;
     let key = &notion.key;
 
@@ -90,7 +90,7 @@ fn create_block(
             "Timestamp": {
                 "id": timestamp_id.clone(),
                 "type": "title",
-                "title": [{"type": "text", "text": {"content": Local::now().format("%Y-%m-%d %H:%M:%S").to_string()}}]
+                "title": [{"type": "text", "text": {"content": mtime::get_datetime(config.time_offset.unwrap())}}]
             }
         }
     });
@@ -182,7 +182,10 @@ fn update_table(
     if let Some(score) = total_score {
         content.push(NotionTextChunk::new(&format!("\nTotal: {}", score), "default"));
     }
-    content.push(NotionTextChunk::new(&format!("\nLast update: {}", Local::now().format("%Y-%m-%d %H:%M:%S")), "default"));
+    content.push(NotionTextChunk::new(
+        &format!("\nLast update: {}", mtime::get_datetime(config.time_offset.unwrap())),
+        "default"
+    ));
 
     let mut merged_chunks: Vec<NotionTextChunk> = Vec::new();
     for chunk in content.into_iter() {

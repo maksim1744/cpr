@@ -88,7 +88,6 @@ impl TestInfo {
         write!(stdout, " |").unwrap();
 
         stdout.suspend_raw_mode().unwrap();
-        stdout.flush().unwrap();
     }
 
     pub fn print_to_notion(&self, config: &Config, test_log: &TestLog) -> Vec<NotionTextChunk> {
@@ -130,9 +129,8 @@ impl TestInfo {
 
         result.push(NotionTextChunk::new(" | ", "default"));
         if test_log.content.is_some() {
-            result.push(NotionTextChunk::new(&format!("{: >9}", ""), "default"));
             result.push(NotionTextChunk {
-                text: "log".to_string(),
+                text: format!("log-{}", test_log.last_update),
                 color: "default".to_string(),
                 link: Some(format!("/{}", test_log.page_id.chars().filter(|c| *c != '-').collect::<String>())),
             });
