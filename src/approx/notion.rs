@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::fs::File;
+use std::fs;
 use std::io::prelude::*;
 use std::{thread, time};
 
@@ -9,66 +10,10 @@ use chrono::Local;
 
 use crate::approx::data::*;
 use crate::approx::test_info::*;
+use crate::approx::client_wrapper::*;
+use crate::approx::test_log::*;
 
-use reqwest::blocking::{Client, Request};
-
-#[derive(Debug, Clone)]
-struct NotionBlock {
-    pub block_id: String,
-    pub page_id: String,
-    pub score_id: String,
-}
-
-struct ClientWrapper {
-    client: Client
-}
-
-impl ClientWrapper {
-    fn new(client: Client) -> Self {
-        ClientWrapper {
-            client,
-        }
-    }
-
-    fn client(&self) -> &Client {
-        &self.client
-    }
-
-    fn execute(&self, request: Request, file: &mut File) -> Option<Value> {
-        let num_tries = 10;
-        for _ in 0..num_tries {
-            let request = request.try_clone().unwrap();
-            let response = self.client.execute(request);
-            if let Ok(response) = response {
-                if response.status().as_u16() != 429 {
-                    if response.status().is_success() {
-                        let response = response.text().unwrap();
-                        let data: Value = match serde_json::from_str(&response) {
-                            Ok(x) => x,
-                            Err(e) => {
-                                file.write(format!("Can't parse json from response, {}\n", e).as_bytes()).unwrap();
-                                return None;
-                            }
-                        };
-                        return Some(data);
-                    } else {
-                        file.write(format!("Return code {}, {}\n",
-                            response.status().as_u16(),
-                            response.text().unwrap()).as_bytes()).unwrap();
-                        return None;
-                    }
-                } else {
-                    file.write(format!("Hit ratelimit\n").as_bytes()).unwrap();
-                }
-            } else {
-                file.write(format!("Can't send request, {}\n", response.unwrap_err()).as_bytes()).unwrap();
-            }
-            thread::sleep(time::Duration::from_millis(1000));
-        }
-        file.write(format!("All retries unsuccessful\n").as_bytes()).unwrap();
-        None
-    }
-}
+use reqwest::blocking::Client;
 
 pub fn start_updates(
     config: Config,
@@ -86,12 +31,14 @@ pub fn start_updates(
         }
     };
 
+    let mut logs: Vec<TestLog> = Vec::new();
+
     while total_score.lock().unwrap().is_none() {
-        update_table(&config, &block, tests_info.lock().unwrap().clone(), &client, &mut file, &None);
+        update_table(&config, &block, tests_info.lock().unwrap().clone(), &mut logs, &client, &mut file, &None);
         thread::sleep(time::Duration::from_millis(1000));
     }
     let total_score = total_score.lock().unwrap().clone();
-    update_table(&config, &block, tests_info.lock().unwrap().clone(), &client, &mut file, &total_score);
+    update_table(&config, &block, tests_info.lock().unwrap().clone(), &mut logs, &client, &mut file, &total_score);
     update_total_score(&config, &block, &mut file, &client, &total_score.unwrap());
 }
 
@@ -213,21 +160,22 @@ fn update_table(
     config: &Config,
     block: &NotionBlock,
     tests_info: Vec<TestInfo>,
+    logs: &mut Vec<TestLog>,
     client: &ClientWrapper,
     file: &mut File,
     total_score: &Option<String>,
 ) {
+    update_logs(config, block, &tests_info, logs, client, file);
+
     let mut content: Vec<NotionTextChunk> = Vec::new();
 
-    let title = format!("| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |", "", "time", "prev", "new", "delta");
+    let title = format!("| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |",
+                             "",     "time",   "prev",    "new",  "delta",  "logs");
     let splitter: String = title.chars().map(|c| if c == '|' { '|' } else { '-' }).collect();
-    content.push(NotionTextChunk{
-        text: title + "\n" + &splitter + "\n",
-        color: "default".to_string(),
-    });
+    content.push(NotionTextChunk::new(&(title + "\n" + &splitter + "\n"), "default"));
 
-    for test_info in tests_info {
-        let mut current = test_info.print_to_notion(&config);
+    for (i, test_info) in tests_info.iter().enumerate() {
+        let mut current = test_info.print_to_notion(&config, &logs[i]);
         content.append(&mut current);
     }
 
@@ -238,7 +186,8 @@ fn update_table(
 
     let mut merged_chunks: Vec<NotionTextChunk> = Vec::new();
     for chunk in content.into_iter() {
-        if merged_chunks.is_empty() || merged_chunks.last().unwrap().color != chunk.color {
+        if merged_chunks.is_empty() || merged_chunks.last().unwrap().color != chunk.color ||
+                                       merged_chunks.last().unwrap().link.is_some() || chunk.link.is_some() {
             merged_chunks.push(chunk);
         } else {
             merged_chunks.last_mut().unwrap().text += &chunk.text;
@@ -247,11 +196,15 @@ fn update_table(
 
     let mut json_content: Vec<Value> = Vec::new();
     for item in merged_chunks {
-        let data = serde_json::json!({
+        let mut data = serde_json::json!({
             "type": "text", "text": {"content": item.text.clone()}, "annotations": {"color": item.color.clone()}
         });
+        if let Some(link) = item.link {
+            data["text"]["link"]["url"] = serde_json::Value::String(link.clone());
+        }
         json_content.push(data);
     }
+
 
     let data = serde_json::json!({
         "code": {
@@ -298,5 +251,33 @@ fn update_total_score(
     let response = client.execute(response, file);
     if !response.is_some() {
         file.write(b"Can't update total score\n").unwrap();
+    }
+}
+
+fn update_logs(
+    config: &Config,
+    block: &NotionBlock,
+    tests_info: &Vec<TestInfo>,
+    logs: &mut Vec<TestLog>,
+    client: &ClientWrapper,
+    file: &mut File,
+) {
+    while logs.len() < tests_info.len() {
+        logs.push(TestLog::new(&tests_info[logs.len()].test_name));
+    }
+
+    for (i, log) in logs.iter_mut().enumerate() {
+        if tests_info[i].state == TestState::Queue || tests_info[i].state == TestState::Skipped {
+            continue
+        }
+        if let Ok(data) = fs::read_to_string(&format!("tests/{}", log.filename)) {
+            if log.content.is_none() {
+                log.create_page(config, block, client, file);
+            }
+            if log.content.is_none() {
+                continue;
+            }
+            log.update_page(&data, config, block, client, file);
+        }
     }
 }

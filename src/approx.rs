@@ -21,6 +21,8 @@ use crate::util::*;
 mod notion;
 mod data;
 mod test_info;
+mod test_log;
+mod client_wrapper;
 
 use data::*;
 use test_info::*;
@@ -79,9 +81,6 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
     for _ in 0..config.tests {
         write!(stdout, "\n").unwrap();
     }
-    stdout.activate_raw_mode().unwrap();
-    write!(stdout, "{}", termion::cursor::Up(config.tests as u16)).unwrap();
-    stdout.suspend_raw_mode().unwrap();
 
     let pool = ThreadPool::new(config.threads.unwrap());
 
@@ -89,6 +88,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     for test in 1..config.tests+1 {
         let index: usize = tests_info.lock().unwrap().len();
+        let tests = config.tests;
 
         let config = config.clone();
 
@@ -104,23 +104,24 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
         {
             let mut stdout = stdout.lock().unwrap();
-            write!(stdout, "{}", termion::cursor::Down(index as u16)).unwrap();
+            write!(stdout, "{}", termion::cursor::Up((tests - index) as u16)).unwrap();
             test_info.print(&config, &mut stdout);
-            write!(stdout, "{}", termion::cursor::Up(index as u16)).unwrap();
+            write!(stdout, "{}", termion::cursor::Down((tests - index) as u16)).unwrap();
+            stdout.flush().unwrap();
         }
 
         pool.execute(move || {
             let update_tests_info = |test_info: &TestInfo| {
                 {
                     let mut stdout = stdout.lock().unwrap();
-                    write!(stdout, "{}", termion::cursor::Down(index as u16)).unwrap();
+                    write!(stdout, "{}", termion::cursor::Up((tests - index) as u16)).unwrap();
                     test_info.print(&config, &mut stdout);
-                    write!(stdout, "{}", termion::cursor::Up(index as u16)).unwrap();
+                    write!(stdout, "{}", termion::cursor::Down((tests - index) as u16)).unwrap();
+                    stdout.flush().unwrap();
                 }
                 tests_info.lock().unwrap()[index] = test_info.clone();
             };
 
-            test_info.time = Local::now().format("%H:%M:%S").to_string();
             if skip {
                 test_info.state = TestState::Skipped;
             }
@@ -164,6 +165,9 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
             }
 
             // run solution
+            test_info.time = Local::now().format("%H:%M:%S").to_string();
+            test_info.state = TestState::Running;
+            update_tests_info(&test_info);
             if !norun {
                 let mut filename_vec = config.main.as_ref().unwrap().clone();
                 filename_vec.push(test_name.clone());
@@ -254,7 +258,6 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut stdout = stdout.lock().unwrap();
     let mut total_score: f64 = total_score.lock().unwrap().clone();
 
-    write!(stdout, "{}", termion::cursor::Down(config.tests as u16)).unwrap();
     write!(stdout, "\n").unwrap();
     if config.result_func == "avg" {
         total_score /= config.tests as f64;

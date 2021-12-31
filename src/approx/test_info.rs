@@ -3,6 +3,7 @@ use std::io::Write;
 use termion::color;
 
 use crate::approx::data::*;
+use crate::approx::test_log::*;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TestState {
@@ -11,6 +12,7 @@ pub enum TestState {
     WrongAnswer,
     Completed,
     Skipped,
+    Queue,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -34,7 +36,7 @@ impl TestInfo {
     pub fn new(test_name: String) -> Self {
         TestInfo {
             test_name,
-            state: TestState::Running,
+            state: TestState::Queue,
             prev_score: None,
             new_score: None,
             time: String::new(),
@@ -89,7 +91,7 @@ impl TestInfo {
         stdout.flush().unwrap();
     }
 
-    pub fn print_to_notion(&self, config: &Config) -> Vec<NotionTextChunk> {
+    pub fn print_to_notion(&self, config: &Config, test_log: &TestLog) -> Vec<NotionTextChunk> {
         let precision = config.precision.unwrap();
 
         let mut result = Vec::new();
@@ -125,6 +127,19 @@ impl TestInfo {
             TestResult::Worse => "red",
             TestResult::Same => "default",
         }));
+
+        result.push(NotionTextChunk::new(" | ", "default"));
+        if test_log.content.is_some() {
+            result.push(NotionTextChunk::new(&format!("{: >9}", ""), "default"));
+            result.push(NotionTextChunk {
+                text: "log".to_string(),
+                color: "default".to_string(),
+                link: Some(format!("/{}", test_log.page_id.chars().filter(|c| *c != '-').collect::<String>())),
+            });
+        } else {
+            result.push(NotionTextChunk::new(&format!("{: >12}", ""), "default"));
+        }
+
         result.push(NotionTextChunk::new(" |\n", "default"));
 
         result

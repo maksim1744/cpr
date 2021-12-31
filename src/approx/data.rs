@@ -24,10 +24,14 @@ pub struct Config {
     pub notion: Option<NotionConfig>,
 }
 
+
+
+
 #[derive(Debug, Clone)]
 pub struct NotionTextChunk {
     pub text: String,
     pub color: String,
+    pub link: Option<String>,
 }
 
 impl NotionTextChunk {
@@ -35,6 +39,16 @@ impl NotionTextChunk {
         NotionTextChunk {
             text: text.to_string(),
             color: color.to_string(),
+            link: None,
         }
     }
+}
+
+
+
+#[derive(Debug, Clone)]
+pub struct NotionBlock {
+    pub block_id: String,
+    pub page_id: String,
+    pub score_id: String,
 }
