@@ -50,45 +50,15 @@ fn create_block(
     let db = &notion.database;
     let key = &notion.key;
 
-    // querying db for columns
-    let response = client.client().get(&format!("https://api.notion.com/v1/databases/{}", db))
-        .header("Authorization", format!("Bearer {}", key))
-        .header("Notion-Version", "2021-08-16")
-        .build().unwrap();
-
-    let response = client.execute(response, file);
-    if !response.is_some() {
-        file.write(b"Can't read database\n").unwrap();
-        return None;
-    }
-    let data = response.unwrap();
-
-    let timestamp_id = match data["properties"]["Timestamp"]["id"].as_str() {
-        Some(x) => x,
-        None => {
-            file.write(b"Can't read timestamp id from response\n").unwrap();
-            return None;
-        }
-    }.to_string();
-    let score_id = match data["properties"]["Score"]["id"].as_str() {
-        Some(x) => x,
-        None => {
-            file.write(b"Can't read score id from response\n").unwrap();
-            return None;
-        }
-    }.to_string();
-
     // creating page
     let data = serde_json::json!({
         "parent": { "database_id": db.clone() },
         "properties": {
             "Score": {
-                "id": score_id.clone(),
                 "type": "rich_text",
                 "rich_text": [{"type": "text", "text": {"content": "Running..."}}]
             },
             "Timestamp": {
-                "id": timestamp_id.clone(),
                 "type": "title",
                 "title": [{"type": "text", "text": {"content": mtime::get_datetime(config.time_offset.unwrap())}}]
             }
@@ -152,7 +122,6 @@ fn create_block(
     Some(NotionBlock {
         block_id,
         page_id,
-        score_id,
     })
 }
 
@@ -239,7 +208,6 @@ fn update_total_score(
     let data = serde_json::json!({
         "properties": {
             "Score": {
-                "id": block.score_id.clone(),
                 "type": "rich_text",
                 "rich_text":[{"type": "text", "text": {"content": total_score.to_string().clone()}}]
             }

@@ -52,5 +52,4 @@ impl NotionTextChunk {
 pub struct NotionBlock {
     pub block_id: String,
     pub page_id: String,
-    pub score_id: String,
 }
