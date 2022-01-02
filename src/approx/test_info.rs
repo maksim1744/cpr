@@ -1,9 +1,10 @@
-use std::io::Write;
-
-use termion::color;
+use std::io::{Stdout, Write};
 
 use crate::approx::data::*;
 use crate::approx::test_log::*;
+
+use crossterm::style::*;
+use crossterm::ExecutableCommand;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TestState {
@@ -44,8 +45,7 @@ impl TestInfo {
         }
     }
 
-    pub fn print<W: Write>(&self, config: &Config, stdout: &mut termion::raw::RawTerminal<W>) {
-        stdout.activate_raw_mode().unwrap();
+    pub fn print(&self, config: &Config, stdout: &mut Stdout) {
         let precision = config.precision.unwrap();
         write!(stdout, "\r").unwrap();
         write!(stdout, "| ").unwrap();
@@ -64,13 +64,14 @@ impl TestInfo {
                 if self.state == TestState::Skipped {
                     write!(stdout, "{:->12}", "").unwrap();
                 } else if self.state == TestState::Failed || self.state == TestState::WrongAnswer {
-                    write!(stdout, "{}{: >12}", color::Fg(color::Red), "error").unwrap();
+                    stdout.execute(SetForegroundColor(Color::Red)).unwrap();
+                    write!(stdout, "{: >12}", "error").unwrap();
                 } else {
                     write!(stdout, "{: >12}", "").unwrap();
                 }
             }
         };
-        write!(stdout, "{}", color::Fg(color::White)).unwrap();
+        stdout.execute(SetForegroundColor(Color::White)).unwrap();
         write!(stdout, " | ").unwrap();
         let mut delta = String::new();
         if self.prev_score.is_some() && self.new_score.is_some() {
@@ -79,15 +80,14 @@ impl TestInfo {
                 delta = "+".to_string() + &delta;
             }
         }
-        write!(stdout, "{}{: >12}", match self.result {
-            TestResult::Better => format!("{}", color::Fg(color::Green)),
-            TestResult::Worse => format!("{}", color::Fg(color::Red)),
-            TestResult::Same => "".to_string(),
-        }, delta).unwrap();
-        write!(stdout, "{}", color::Fg(color::White)).unwrap();
+        stdout.execute(match self.result {
+            TestResult::Better => SetForegroundColor(Color::Green),
+            TestResult::Worse => SetForegroundColor(Color::Red),
+            _ => SetForegroundColor(Color::White),
+        }).unwrap();
+        write!(stdout, "{: >12}", delta).unwrap();
+        stdout.execute(SetForegroundColor(Color::White)).unwrap();
         write!(stdout, " |").unwrap();
-
-        stdout.suspend_raw_mode().unwrap();
     }
 
     pub fn print_to_notion(&self, config: &Config, test_log: &TestLog) -> Vec<NotionTextChunk> {

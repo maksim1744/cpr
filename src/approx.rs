@@ -8,7 +8,7 @@ use std::thread;
 
 use subprocess::{Popen, PopenConfig, Redirection};
 
-use termion::raw::IntoRawMode;
+use crossterm::cursor;
 
 use indoc::indoc;
 
@@ -73,8 +73,9 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
         }));
     }
 
-    let mut stdout = stdout().into_raw_mode().unwrap();
-    stdout.suspend_raw_mode().unwrap();
+    // let mut stdout = stdout().into_raw_mode().unwrap();
+    let mut stdout = stdout();
+    // stdout.suspend_raw_mode().unwrap();
 
     let title = format!("| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |", "", "time", "prev", "new", "delta");
     write!(stdout, "{}\n", title).unwrap();
@@ -107,9 +108,9 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
         {
             let mut stdout = stdout.lock().unwrap();
-            write!(stdout, "{}", termion::cursor::Up((tests - index) as u16)).unwrap();
+            write!(stdout, "{}", cursor::MoveUp((tests - index) as u16)).unwrap();
             test_info.print(&config, &mut stdout);
-            write!(stdout, "{}", termion::cursor::Down((tests - index) as u16)).unwrap();
+            write!(stdout, "{}", cursor::MoveDown((tests - index) as u16)).unwrap();
             stdout.flush().unwrap();
         }
 
@@ -117,9 +118,9 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
             let update_tests_info = |test_info: &TestInfo| {
                 {
                     let mut stdout = stdout.lock().unwrap();
-                    write!(stdout, "{}", termion::cursor::Up((tests - index) as u16)).unwrap();
+                    write!(stdout, "{}", cursor::MoveUp((tests - index) as u16)).unwrap();
                     test_info.print(&config, &mut stdout);
-                    write!(stdout, "{}", termion::cursor::Down((tests - index) as u16)).unwrap();
+                    write!(stdout, "{}", cursor::MoveDown((tests - index) as u16)).unwrap();
                     stdout.flush().unwrap();
                 }
                 tests_info.lock().unwrap()[index] = test_info.clone();
@@ -300,8 +301,8 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 fn read_config() -> Config {
     let mut config: Config = match serde_json::from_str(&fs::read_to_string("config.json").unwrap()) {
         Ok(x) => x,
-        Err(_) => {
-            eprintln!("Can't parse json from \"config.json\"");
+        Err(e) => {
+            eprintln!("Can't parse json from \"config.json\", {}", e);
             std::process::exit(1);
         }
     };
