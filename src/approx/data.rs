@@ -30,11 +30,20 @@ pub struct Config {
 
 
 #[derive(Debug, Clone)]
+pub struct TestSuiteInfo {
+    pub score: f64,
+    pub delta: f64,
+    pub cpu_time: u128,
+    pub finished: bool,
+}
+
+
+
+#[derive(Debug, Clone)]
 pub struct NotionBlock {
     pub block_id: String,
     pub page_id: String,
 }
-
 
 
 

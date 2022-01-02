@@ -54,23 +54,27 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
     let config = read_config();
 
     let tests_info: Arc<Mutex<Vec<TestInfo>>> = Arc::new(Mutex::new(Vec::new()));
-    let total_score_string: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+
+    let total_info = Arc::new(Mutex::new(TestSuiteInfo {
+        score: 0.,
+        delta: 0.,
+        cpu_time: 0,
+        finished: false,
+    }));
 
     let mut handle: Option<thread::JoinHandle<_>> = None;
 
     if config.notion.is_some() && !norun {
         let tests_info = tests_info.clone();
-        let total_score = total_score_string.clone();
+        let total_info = total_info.clone();
         let config = config.clone();
         handle = Some(thread::spawn(move || {
-            notion::start_updates(config, tests_info, total_score);
+            notion::start_updates(config, tests_info, total_info);
         }));
     }
 
     let mut stdout = stdout().into_raw_mode().unwrap();
     stdout.suspend_raw_mode().unwrap();
-
-    let total_score = Arc::new(Mutex::new(0.));
 
     let title = format!("| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |", "", "time", "prev", "new", "delta");
     write!(stdout, "{}\n", title).unwrap();
@@ -97,7 +101,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
         tests_info.lock().unwrap().push(test_info.clone());
 
         let tests_info = tests_info.clone();
-        let total_score = total_score.clone();
+        let total_info = total_info.clone();
         let norun = norun.clone();
         let stdout = stdout.clone();
 
@@ -154,7 +158,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
                 }
                 test_info.prev_score = Some(out.unwrap().trim().parse().expect("Can't parse score"));
                 update_tests_info(&test_info);
-                *total_score.lock().unwrap() += test_info.prev_score.unwrap();
+                total_info.lock().unwrap().score += test_info.prev_score.unwrap();
             }
 
             if skip {
@@ -188,7 +192,9 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
                 p.wait().unwrap();
                 let exit_status = p.poll().unwrap();
 
-                test_info.time = format!("{:.3}", now.elapsed().as_millis() as f64 / 1000.);
+                let time = now.elapsed().as_millis();
+                test_info.time = format!("{:.3}", time as f64 / 1000.);
+                total_info.lock().unwrap().cpu_time += time;
                 update_tests_info(&test_info);
 
                 if !exit_status.success() {
@@ -245,25 +251,29 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
             if test_info.result == TestResult::Better || test_info.prev_score.is_none() {
                 fs::copy(format!("tests/{}.out", test_name), format!("tests/{}.ans", test_name)).unwrap();
+                let mut total_info = total_info.lock().unwrap();
                 if let Some(prev_score) = test_info.prev_score {
-                    *total_score.lock().unwrap() -= prev_score;
+                    total_info.score -= prev_score;
+                    total_info.delta -= prev_score;
                 }
-                *total_score.lock().unwrap() += test_info.new_score.unwrap();
+                total_info.score += test_info.new_score.unwrap();
+                total_info.delta += test_info.new_score.unwrap();
             }
         });
     }
 
     pool.join();
     let mut stdout = stdout.lock().unwrap();
-    let mut total_score: f64 = total_score.lock().unwrap().clone();
 
     write!(stdout, "\n").unwrap();
     if config.result_func == "avg" {
-        total_score /= config.tests as f64;
+        let mut total_info = total_info.lock().unwrap();
+        total_info.score /= config.tests as f64;
+        total_info.delta /= config.tests as f64;
+        total_info.finished = true;
     }
-    let total_score = format!("{:.prec$}", total_score, prec = config.precision.unwrap().max(10));
+    let total_score = format!("{:.10}", total_info.lock().unwrap().score);
     writeln!(stdout, "Total: {}", &total_score).unwrap();
-    *total_score_string.lock().unwrap() = Some(total_score);
 
     // finalize
     {

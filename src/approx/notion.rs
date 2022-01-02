@@ -15,7 +15,7 @@ use reqwest::blocking::Client;
 pub fn start_updates(
     config: Config,
     tests_info: Arc<Mutex<Vec<TestInfo>>>,
-    total_score: Arc<Mutex<Option<String>>>
+    total_info: Arc<Mutex<TestSuiteInfo>>
 ) {
     let mut file = File::create("err").unwrap();
 
@@ -30,13 +30,13 @@ pub fn start_updates(
 
     let mut logs: Vec<TestLog> = Vec::new();
 
-    while total_score.lock().unwrap().is_none() {
-        update_table(&config, &block, tests_info.lock().unwrap().clone(), &mut logs, &client, &mut file, &None);
+    while !total_info.lock().unwrap().finished {
+        update_table(&config, &block, tests_info.lock().unwrap().clone(), &mut logs, &client, &mut file, None);
         thread::sleep(time::Duration::from_millis(1000));
     }
-    let total_score = total_score.lock().unwrap().clone();
-    update_table(&config, &block, tests_info.lock().unwrap().clone(), &mut logs, &client, &mut file, &total_score);
-    update_total_score(&config, &block, &mut file, &client, &total_score.unwrap());
+    let total_info = total_info.lock().unwrap().clone();
+    update_table(&config, &block, tests_info.lock().unwrap().clone(), &mut logs, &client, &mut file, Some(&total_info));
+    update_total_score(&config, &block, &mut file, &client, &total_info);
 }
 
 fn create_block(
@@ -130,7 +130,7 @@ fn update_table(
     logs: &mut Vec<TestLog>,
     client: &ClientWrapper,
     file: &mut File,
-    total_score: &Option<String>,
+    total_info: Option<&TestSuiteInfo>,
 ) {
     update_logs(config, block, &tests_info, logs, client, file);
 
@@ -146,8 +146,8 @@ fn update_table(
         content.append(&mut current);
     }
 
-    if let Some(score) = total_score {
-        content.push(NotionTextChunk::new(&format!("\nTotal: {}", score), "default"));
+    if let Some(total_info) = total_info {
+        content.push(NotionTextChunk::new(&format!("\nTotal: {}", total_info.score), "default"));
     }
     content.push(NotionTextChunk::new(
         &format!("\nLast update: {}", mtime::get_datetime(config.time_offset.unwrap())),
@@ -174,14 +174,44 @@ fn update_total_score(
     block: &NotionBlock,
     file: &mut File,
     client: &ClientWrapper,
-    total_score: &str,
+    total_info: &TestSuiteInfo,
 ) {
+    let delta_color = if total_info.delta == 0.0 { "default" } else { "green" };
+    let mut delta = format!("{:.10}", total_info.delta);
+    if delta.chars().nth(0).unwrap() != '-' && delta_color == "green" {
+        delta = "+".to_owned() + &delta;
+    }
+    let time = total_info.cpu_time / 1000;
+    let time = format!(
+        "{:0>2}:{:0>2}:{:0>2}",
+        time / 60 / 60,
+        time / 60 % 60,
+        time % 60,
+    );
     let data = serde_json::json!({
         "properties": {
             "Score": {
                 "type": "rich_text",
-                "rich_text":[{"type": "text", "text": {"content": total_score.to_string().clone()}}]
-            }
+                "rich_text":[{
+                    "type": "text",
+                    "text": {"content": format!("{:.10}", total_info.score)}
+                }]
+            },
+            "Delta": {
+                "type": "rich_text",
+                "rich_text":[{
+                    "type": "text",
+                    "text": {"content": delta},
+                    "annotations": {"color": delta_color}
+                }]
+            },
+            "Cpu time": {
+                "type": "rich_text",
+                "rich_text":[{
+                    "type": "text",
+                    "text": {"content": time}
+                }]
+            },
         }
     });
 
