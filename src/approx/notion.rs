@@ -147,7 +147,7 @@ fn update_table(
     }
 
     if let Some(total_info) = total_info {
-        content.push(NotionTextChunk::new(&format!("\nTotal: {}", total_info.score), "default"));
+        content.push(NotionTextChunk::new(&format!("\nTotal: {:.10}", total_info.score), "default"));
     }
     content.push(NotionTextChunk::new(
         &format!("\nLast update: {}", mtime::get_datetime(config.time_offset.unwrap())),
