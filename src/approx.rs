@@ -139,7 +139,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
                 filename_vec.push(format!("tests/{}.ans", test_name));
 
                 let mut p = match Popen::create(&filename_vec[..], PopenConfig {
-                    stdout: Redirection::Pipe,
+                    stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
                     stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
                     ..Default::default()
                 }) {
@@ -150,14 +150,14 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
                     }
                 };
 
-                let (out, _) = p.communicate(None).unwrap();
                 p.wait().unwrap();
                 let exit_status = p.poll().unwrap();
                 if !exit_status.success() {
                     eprintln!("Scorer failed on {}.ans", test_name);
                     std::process::exit(1);
                 }
-                test_info.prev_score = Some(out.unwrap().trim().parse().expect("Can't parse score"));
+                let out = fs::read_to_string(format!("tests/{}.tmp", test_name)).unwrap();
+                test_info.prev_score = Some(out.trim().parse().expect("Can't parse score"));
                 update_tests_info(&test_info);
                 total_info.lock().unwrap().score += test_info.prev_score.unwrap();
             }
@@ -178,8 +178,6 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
                 let now = Instant::now();
                 let mut p = match Popen::create(&filename_vec[..], PopenConfig {
-                    stdin: Redirection::Pipe,
-                    stdout: Redirection::Pipe,
                     stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
                     ..Default::default()
                 }) {
@@ -215,7 +213,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
                 filename_vec.push(format!("tests/{}.out", test_name));
 
                 let mut p = match Popen::create(&filename_vec[..], PopenConfig {
-                    stdout: Redirection::Pipe,
+                    stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
                     stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
                     ..Default::default()
                 }) {
@@ -226,7 +224,6 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
                     }
                 };
 
-                let (out, _) = p.communicate(None).unwrap();
                 p.wait().unwrap();
                 let exit_status = p.poll().unwrap();
                 if !exit_status.success() {
@@ -234,7 +231,8 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
                     update_tests_info(&test_info);
                     return;
                 }
-                test_info.new_score = Some(out.unwrap().trim().parse().expect("Can't parse score"));
+                let out = fs::read_to_string(format!("tests/{}.tmp", test_name)).unwrap();
+                test_info.new_score = Some(out.trim().parse().expect("Can't parse score"));
                 test_info.state = TestState::Completed;
                 update_tests_info(&test_info);
                 if let Some(prev_score) = test_info.prev_score {
