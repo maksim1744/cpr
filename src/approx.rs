@@ -269,8 +269,8 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
         let mut total_info = total_info.lock().unwrap();
         total_info.score /= config.tests as f64;
         total_info.delta /= config.tests as f64;
-        total_info.finished = true;
     }
+    total_info.lock().unwrap().finished = true;
     let total_score = format!("{:.10}", total_info.lock().unwrap().score);
     writeln!(stdout, "Total: {}", &total_score).unwrap();
 
