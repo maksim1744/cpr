@@ -3,7 +3,7 @@ use subprocess::{ExitStatus, Popen, PopenConfig, Redirection};
 use std::collections::{HashSet, HashMap};
 use std::env;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Write, BufReader};
 use std::path::Path;
 use std::time::Instant;
 
@@ -27,6 +27,8 @@ use std::net::TcpListener;
 use std::thread;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::mpsc;
+use std::sync::mpsc::{Sender, Receiver};
 use std::process::{Command, Stdio};
 
 use threadpool::ThreadPool;
@@ -779,185 +781,89 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
     interact_vec.extend(interact.split_whitespace().map(|x| String::from(x)).collect::<Vec<_>>());
 
     if cfg!(unix) {
-        interact_vec[0] = ["./", &filename_vec[0]].concat().to_string();
+        interact_vec[0] = ["./", &interact_vec[0]].concat().to_string();
     }
 
-    if debug {
-        let mut main = Command::new(filename_vec[0].clone());
-        for i in 1..filename_vec.len() {
-            main.arg(filename_vec[i].clone());
-        }
-        let mut main = main.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("!oops");
-        let out_main = child_stream_to_vec(main.stdout.take().expect("!stdout"));
-        let err_main = child_stream_to_vec(main.stderr.take().expect("!stderr"));
-        let mut stdin = match main.stdin.take() {
-            Some(stdin) => stdin,
-            None => panic!("!stdin"),
-        };
-
-        let mut interact = Command::new(interact_vec[0].clone());
-        for i in 1..interact_vec.len() {
-            interact.arg(interact_vec[i].clone());
-        }
-        let mut interact = interact.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("!oops");
-        let out_judge = child_stream_to_vec(interact.stdout.take().expect("!stdout"));
-        let err_judge = child_stream_to_vec(interact.stderr.take().expect("!stderr"));
-        let mut stdin_judge = match interact.stdin.take() {
-            Some(stdin) => stdin,
-            None => panic!("!stdin"),
-        };
-
-        let mut main_finished = false;
-        let mut judge_finished = false;
-
-        let mut stdout = StandardStream::stdout(ColorChoice::Always);
-
-        while !main_finished || !judge_finished {
-            if !err_main.lock().unwrap().is_empty() {
-                if err_main.lock().unwrap().last().unwrap() == &b'\n' || main_finished {
-                    let result = &String::from_utf8(err_main.lock().unwrap().to_vec()).unwrap();
-                    err_main.lock().unwrap().clear();
-                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
-                    for line in result.split('\n') {
-                        if !line.is_empty() {
-                            writeln!(&mut stdout, "main: {}", &line).unwrap();
-                        }
-                    }
-                    stdout.set_color(&ColorSpec::new()).unwrap();
-                }
-            }
-            if !out_main.lock().unwrap().is_empty() {
-                if !main_finished && out_main.lock().unwrap().last().unwrap() == &(0 as u8) {
-                    main_finished = true;
-                    out_main.lock().unwrap().pop();
-                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
-                    writeln!(&mut stdout, "main finished").unwrap();
-                    stdout.set_color(&ColorSpec::new()).unwrap();
-                }
-                if !out_main.lock().unwrap().is_empty() {
-                    if out_main.lock().unwrap().last().unwrap() == &b'\n' || main_finished {
-                        let result = &String::from_utf8(out_main.lock().unwrap().to_vec()).unwrap();
-                        out_main.lock().unwrap().clear();
-                        for line in result.split('\n') {
-                            if !line.is_empty() {
-                                writeln!(&mut stdout, "main: {}", &line).unwrap();
-                            }
-                        }
-                        match stdin_judge.write_all(result.as_bytes()) {
-                            Err(x) => {
-                                eprintln!("can't send data to judge [{}]", x);
-                                judge_finished = true;
-                            },
-                            _ => {}
-                        };
-                    }
-                }
-            }
-            if !err_judge.lock().unwrap().is_empty() {
-                if err_judge.lock().unwrap().last().unwrap() == &b'\n' || judge_finished {
-                    let result = &String::from_utf8(err_judge.lock().unwrap().to_vec()).unwrap();
-                    err_judge.lock().unwrap().clear();
-                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
-                    for line in result.split('\n') {
-                        if !line.is_empty() {
-                            writeln!(&mut stdout, "{:w$}judge: {}", "", &line, w = tab_size).unwrap();
-                        }
-                    }
-                    stdout.set_color(&ColorSpec::new()).unwrap();
-                }
-            }
-            if !out_judge.lock().unwrap().is_empty() {
-                if !judge_finished && out_judge.lock().unwrap().last().unwrap() == &(0 as u8) {
-                    judge_finished = true;
-                    out_judge.lock().unwrap().pop();
-                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
-                    writeln!(&mut stdout, "{:w$}judge finished", "", w = tab_size).unwrap();
-                    stdout.set_color(&ColorSpec::new()).unwrap();
-                }
-                if !out_judge.lock().unwrap().is_empty() {
-                    if out_judge.lock().unwrap().last().unwrap() == &b'\n' || judge_finished {
-                        let result = &String::from_utf8(out_judge.lock().unwrap().to_vec()).unwrap();
-                        out_judge.lock().unwrap().clear();
-                        for line in result.split('\n') {
-                            if !line.is_empty() {
-                                writeln!(&mut stdout, "{:w$}judge: {}", "", &line, w = tab_size).unwrap();
-                            }
-                        }
-                        stdin.write_all(result.as_bytes()).expect("can't send data to main");
-                    }
-                }
-            }
-        }
-
-        return;
-    }
+    let mut stdout = StandardStream::stdout(ColorChoice::Always);
 
     let mut case = 1;
 
     loop {
-        let mut p_main = match Popen::create(&filename_vec[..], PopenConfig {
-            stdin: Redirection::Pipe,
-            stdout: Redirection::Pipe,
-            ..Default::default()
-        }) {
-            Ok(x) => x,
-            Err(_) => {
-                eprintln!("Error when starting process {:?}", filename);
-                std::process::exit(1)
-            }
-        };
+        let (mut child_shell1, mut child1_in, rx_out1, rx_err1, tx_end11, tx_end12) = run_interactive(&filename_vec[..].join(" "));
+        let (mut child_shell2, mut child2_in, rx_out2, rx_err2, tx_end21, tx_end22) = run_interactive(&[&interact_vec[..], &[seed.to_string()]].concat().join(" "));
 
-        let mut p_interact = match Popen::create(&[&interact_vec[..], &[seed.to_string()]].concat(), PopenConfig {
-            stdin: Redirection::File(p_main.stdout.as_mut().unwrap().try_clone().unwrap()),
-            stdout: Redirection::File(p_main.stdin.as_mut().unwrap().try_clone().unwrap()),
-            stderr: Redirection::File(fs::File::create("err").unwrap()),
-            ..Default::default()
-        }) {
-            Ok(x) => x,
-            Err(_) => {
-                eprintln!("Error when starting process {:?}", interact);
-                std::process::exit(1)
-            }
-        };
-
-        print!("Case #{}: [seed = {}] ", case, seed);
-        io::stdout().flush().unwrap();
-
-        p_interact.wait_timeout(std::time::Duration::from_secs(5)).unwrap();
-        p_main.wait_timeout(std::time::Duration::from_secs(5)).unwrap();
-
-        if let None = p_main.poll() {
-            p_main.kill().unwrap();
+        if !debug {
+            print!("\rCase #{}: [seed = {}] ", case, seed);
+            io::stdout().flush().unwrap();
         }
 
-        if let None = p_interact.poll() {
-            p_interact.kill().unwrap();
-            println!("timeout");
-            if !quiet {
-                println!("{}", read_lines_trim("err").join("\n"));
+        let mut end1 = false;
+        let mut end2 = false;
+        loop {
+            if let Ok(x) = child_shell1.try_wait() {
+                if !end1 && !x.is_none() {
+                    if !x.unwrap().success() {
+                        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+                        writeln!(&mut stdout, "main exitted with {}", x.unwrap()).unwrap();
+                        stdout.set_color(&ColorSpec::new()).unwrap();
+                        std::process::exit(0);
+                    }
+                    end1 = true;
+                }
             }
-            break;
-        }
-        if !p_interact.poll().unwrap().success() {
-            println!("failed");
-            if !quiet {
-                println!("{}", read_lines_trim("err").join("\n"));
+            if let Ok(x) = child_shell2.try_wait() {
+                if !end2 && !x.is_none() {
+                    if !x.unwrap().success() {
+                        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
+                        writeln!(&mut stdout, "judge exitted with {}", x.unwrap()).unwrap();
+                        stdout.set_color(&ColorSpec::new()).unwrap();
+                        std::process::exit(0);
+                    }
+                    end2 = true;
+                }
             }
-            break;
+            if end1 && end2 {
+                tx_end11.send(0).unwrap();
+                tx_end12.send(0).unwrap();
+                tx_end21.send(0).unwrap();
+                tx_end22.send(0).unwrap();
+                break;
+            }
+            if let Ok(line) = rx_err1.try_recv() {
+                if debug {
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
+                    writeln!(&mut stdout, "main: {}", line.trim()).unwrap();
+                    stdout.set_color(&ColorSpec::new()).unwrap();
+                }
+            }
+            if let Ok(line) = rx_out1.try_recv() {
+                if debug {
+                    writeln!(&mut stdout, "main: {}", line.trim()).unwrap();
+                }
+                child2_in.write(line.as_bytes()).unwrap();
+            }
+            if let Ok(line) = rx_err2.try_recv() {
+                if debug {
+                    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
+                    writeln!(&mut stdout, "{:w$}judge: {}", "", line.trim(), w = tab_size).unwrap();
+                    stdout.set_color(&ColorSpec::new()).unwrap();
+                } else if !quiet {
+                    writeln!(&mut stdout, "{}", line.trim()).unwrap();
+                }
+            }
+            if let Ok(line) = rx_out2.try_recv() {
+                if debug {
+                    writeln!(&mut stdout, "{:w$}judge: {}", "", line.trim(), w = tab_size).unwrap();
+                }
+                child1_in.write(line.as_bytes()).unwrap();
+            }
         }
 
         seed += 1;
         case += 1;
-
-        print!("\r                                    \r");
+        if debug {
+            break;
+        }
     }
 }
 
@@ -2185,33 +2091,58 @@ fn get_login_password(source: &str) -> (String, String) {
     (login.to_string(), password.to_string())
 }
 
-fn child_stream_to_vec<R>(mut stream: R) -> Arc<Mutex<Vec<u8>>> where R: Read + Send + 'static {
-    let out = Arc::new(Mutex::new(Vec::new()));
-    let vec = out.clone();
-    thread::Builder::new()
-        .name("child_stream_to_vec".into())
-        .spawn(move || loop {
-            let mut buf = [0];
-            match stream.read(&mut buf) {
-                Err(err) => {
-                    println!("[{}] Error reading from stream: {}", line!(), err);
-                    break;
-                }
-                Ok(got) => {
-                    if got == 0 {
-                        vec.lock().expect("!lock").push(0);
-                        break;
-                    } else if got == 1 {
-                        vec.lock().expect("!lock").push(buf[0]);
-                    } else {
-                        println!("[{}] Unexpected number of bytes: {}", line!(), got);
-                        break;
-                    }
-                }
+fn run_interactive(name: &str) -> (std::process::Child, std::process::ChildStdin, Receiver<String>, Receiver<String>, Sender<i32>, Sender<i32>) {
+    let (txout, rxout): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let (txerr, rxerr): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let (txend1, rxend1): (Sender<i32>, Receiver<i32>) = mpsc::channel();
+    let (txend2, rxend2): (Sender<i32>, Receiver<i32>) = mpsc::channel();
+
+    let parts = name.split(' ').collect::<Vec<_>>();
+    let name = parts[0];
+    let parts = match parts.len() {
+        1 => &[],
+        _ => &parts[1..],
+    };
+    let mut child = Command::new(name)
+        .args(parts)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let input = child.stdin.take().unwrap();
+    let mut out = child.stdout.take().unwrap();
+    let mut err = child.stderr.take().unwrap();
+
+    thread::spawn(move || {
+        loop {
+            if rxend1.try_recv().is_ok() {
+                break;
             }
-        })
-        .expect("!thread");
-    out
+            let mut line = String::new();
+            BufReader::new(&mut out).read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                continue;
+            }
+            txout.send(line).unwrap();
+        }
+    });
+    thread::spawn(move || {
+        loop {
+            if rxend2.try_recv().is_ok() {
+                break;
+            }
+            let mut line = String::new();
+            BufReader::new(&mut err).read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                continue;
+            }
+            txerr.send(line).unwrap();
+        }
+    });
+
+    (child, input, rxout, rxerr, txend1, txend2)
 }
 
 fn compile_cpr_tmp_file() -> Result<(), ()> {
