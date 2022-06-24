@@ -2116,26 +2116,28 @@ fn run_interactive(name: &str) -> (std::process::Child, std::process::ChildStdin
     let mut err = child.stderr.take().unwrap();
 
     thread::spawn(move || {
+        let mut reader = BufReader::new(&mut out);
         loop {
             if rxend1.try_recv().is_ok() {
                 break;
             }
             let mut line = String::new();
-            BufReader::new(&mut out).read_line(&mut line).unwrap();
-            if line.trim().is_empty() {
+            reader.read_line(&mut line).unwrap();
+            if line.is_empty() {
                 continue;
             }
             txout.send(line).unwrap();
         }
     });
     thread::spawn(move || {
+        let mut reader = BufReader::new(&mut err);
         loop {
             if rxend2.try_recv().is_ok() {
                 break;
             }
             let mut line = String::new();
-            BufReader::new(&mut err).read_line(&mut line).unwrap();
-            if line.trim().is_empty() {
+            reader.read_line(&mut line).unwrap();
+            if line.is_empty() {
                 continue;
             }
             txerr.send(line).unwrap();
