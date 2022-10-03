@@ -1,40 +1,40 @@
 use subprocess::{ExitStatus, Popen, PopenConfig, Redirection};
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
-use std::io::{self, Write, BufReader};
+use std::io::{self, BufReader, Write};
 use std::path::Path;
 use std::time::Instant;
 
 use soup::prelude::*;
 
-use chrono::{Local};
+use chrono::Local;
 
 use indoc::indoc;
 
-use serde_json::Value;
 use serde_json::map::Map;
+use serde_json::Value;
 
-use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use std::io::prelude::*;
 use std::net::TcpListener;
 
-use std::thread;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::mpsc;
-use std::sync::mpsc::{Sender, Receiver};
-use std::process::{Command, Stdio};
+use std::thread;
 
 use threadpool::ThreadPool;
 
-mod draw;
 mod approx;
+mod draw;
 mod util;
 
 use crate::util::*;
@@ -203,7 +203,12 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     loop {
         print!("Case #{}:  ", case);
         io::stdout().flush().unwrap();
-        let result = run_and_wait(&[&fix_unix_filename(&gen_str), &seed.to_string()], "", "in", Some(timeout));
+        let result = run_and_wait(
+            &[&fix_unix_filename(&gen_str), &seed.to_string()],
+            "",
+            "in",
+            Some(timeout),
+        );
         if !result.success() {
             println!("X  [seed = {}]", seed);
             break;
@@ -382,7 +387,10 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
     let template = template.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
 
     let mut result: Vec<String> = Vec::new();
-    let mut headers: Vec<String> = vec!["#include \"bits/stdc++.h\"".to_string(), "using namespace std;".to_string()];
+    let mut headers: Vec<String> = vec![
+        "#include \"bits/stdc++.h\"".to_string(),
+        "using namespace std;".to_string(),
+    ];
     for line in template.iter() {
         if line.starts_with("//->settings") {
             if let Some(eps) = epsilon {
@@ -411,7 +419,10 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
                 }
             };
 
-            let lines = fs::read_to_string(&[file, ".cpp".to_string()].concat()).unwrap().trim().to_string();
+            let lines = fs::read_to_string(&[file, ".cpp".to_string()].concat())
+                .unwrap()
+                .trim()
+                .to_string();
             let lines = lines.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
 
             for line2 in lines.iter() {
@@ -442,9 +453,12 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
     print!("\rStarting...");
     io::stdout().flush().unwrap();
 
-    let _result = Popen::create(&[fix_unix_filename("cpr_tmp_file")], PopenConfig {
-        ..Default::default()
-    }).unwrap().wait();
+    let _result = Popen::create(
+        &[fix_unix_filename("cpr_tmp_file")],
+        PopenConfig { ..Default::default() },
+    )
+    .unwrap()
+    .wait();
 }
 
 fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
@@ -563,7 +577,12 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
         print!("Case #{:<6}", format!("{}:", test));
         io::stdout().flush().unwrap();
 
-        let result = run_and_wait(&[&filename], &["in", &test.to_string()].concat(), &["out", &test.to_string()].concat(), Some(timeout));
+        let result = run_and_wait(
+            &[&filename],
+            &["in", &test.to_string()].concat(),
+            &["out", &test.to_string()].concat(),
+            Some(timeout),
+        );
         let duration = now.elapsed().as_millis();
         print!("{:>5} ms   ", duration);
 
@@ -597,9 +616,17 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             }
             let out_string = fs::read_to_string(&["out", &test.to_string()].concat()).unwrap();
             let inout = [in_string, out_string].concat();
-            fs::File::create(&["inout", &test.to_string()].concat()).unwrap().write(inout.as_bytes()).unwrap();
+            fs::File::create(&["inout", &test.to_string()].concat())
+                .unwrap()
+                .write(inout.as_bytes())
+                .unwrap();
 
-            let result = run_and_wait(&[&check_str], &["inout", &test.to_string()].concat(), &["ans", &test.to_string()].concat(), Some(timeout));
+            let result = run_and_wait(
+                &[&check_str],
+                &["inout", &test.to_string()].concat(),
+                &["ans", &test.to_string()].concat(),
+                Some(timeout),
+            );
             if !result.success() {
                 stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
                 writeln!(&mut stdout, "failed").unwrap();
@@ -622,7 +649,11 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
             writeln!(&mut stdout, "?").unwrap();
             stdout.set_color(&ColorSpec::new()).unwrap();
-        } else if !compare_output(&["out", &test.to_string()].concat(), &["ans", &test.to_string()].concat(), if has_epsilon { Some(epsilon) } else { None }) {
+        } else if !compare_output(
+            &["out", &test.to_string()].concat(),
+            &["ans", &test.to_string()].concat(),
+            if has_epsilon { Some(epsilon) } else { None },
+        ) {
             stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
             writeln!(&mut stdout, "failed").unwrap();
             stdout.set_color(&ColorSpec::new()).unwrap();
@@ -789,8 +820,10 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut case = 1;
 
     loop {
-        let (mut child_shell1, mut child1_in, rx_out1, rx_err1, tx_end11, tx_end12) = run_interactive(&filename_vec[..].join(" "));
-        let (mut child_shell2, mut child2_in, rx_out2, rx_err2, tx_end21, tx_end22) = run_interactive(&[&interact_vec[..], &[seed.to_string()]].concat().join(" "));
+        let (mut child_shell1, mut child1_in, rx_out1, rx_err1, tx_end11, tx_end12) =
+            run_interactive(&filename_vec[..].join(" "));
+        let (mut child_shell2, mut child2_in, rx_out2, rx_err2, tx_end21, tx_end22) =
+            run_interactive(&[&interact_vec[..], &[seed.to_string()]].concat().join(" "));
 
         if !debug {
             print!("\rCase #{}: [seed = {}] ", case, seed);
@@ -949,17 +982,49 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
             let response = reqwest::blocking::get(url).unwrap().text().unwrap();
             let soup = Soup::new(&response);
 
-            let inputs: Vec<_> = soup.tag("div").class("input").find_all().map(|x| x.tag("pre").find().unwrap().display()).collect();
-            let inputs: Vec<_> = inputs.iter().map(|x| x.replace("<br>", "").replace("</br>", "\n").replace("<pre>", "").replace("</pre>", "")).collect();
+            let inputs: Vec<_> = soup
+                .tag("div")
+                .class("input")
+                .find_all()
+                .map(|x| x.tag("pre").find().unwrap().display())
+                .collect();
+            let inputs: Vec<_> = inputs
+                .iter()
+                .map(|x| {
+                    x.replace("<br>", "")
+                        .replace("</br>", "\n")
+                        .replace("<pre>", "")
+                        .replace("</pre>", "")
+                })
+                .collect();
 
-            let answers: Vec<_> = soup.tag("div").class("output").find_all().map(|x| x.tag("pre").find().unwrap().display()).collect();
-            let answers: Vec<_> = answers.iter().map(|x| x.replace("<br>", "").replace("</br>", "\n").replace("<pre>", "").replace("</pre>", "")).collect();
+            let answers: Vec<_> = soup
+                .tag("div")
+                .class("output")
+                .find_all()
+                .map(|x| x.tag("pre").find().unwrap().display())
+                .collect();
+            let answers: Vec<_> = answers
+                .iter()
+                .map(|x| {
+                    x.replace("<br>", "")
+                        .replace("</br>", "\n")
+                        .replace("<pre>", "")
+                        .replace("</pre>", "")
+                })
+                .collect();
 
             for i in 0..inputs.len() {
                 let test = first_available_test();
-                fs::File::create(&["in", &test.to_string()].concat()).unwrap().write(inputs[i].as_bytes()).unwrap();
+                fs::File::create(&["in", &test.to_string()].concat())
+                    .unwrap()
+                    .write(inputs[i].as_bytes())
+                    .unwrap();
                 if i < answers.len() {
-                    fs::File::create(&["ans", &test.to_string()].concat()).unwrap().write(answers[i].as_bytes()).unwrap();
+                    fs::File::create(&["ans", &test.to_string()].concat())
+                        .unwrap()
+                        .write(answers[i].as_bytes())
+                        .unwrap();
                 }
             }
 
@@ -981,9 +1046,15 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
             let input = test["input"].as_str().unwrap();
             let answer = test["output"].as_str().unwrap();
 
-            fs::File::create(&["in", &index.to_string()].concat()).unwrap().write(input.as_bytes()).unwrap();
+            fs::File::create(&["in", &index.to_string()].concat())
+                .unwrap()
+                .write(input.as_bytes())
+                .unwrap();
             if !answer.is_empty() {
-                fs::File::create(&["ans", &index.to_string()].concat()).unwrap().write(answer.as_bytes()).unwrap();
+                fs::File::create(&["ans", &index.to_string()].concat())
+                    .unwrap()
+                    .write(answer.as_bytes())
+                    .unwrap();
             }
         }
 
@@ -1049,7 +1120,7 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         let mut problem_name: String = String::new();
         if parse_contest {
             if problem_iter == problem_names.len() {
-                break
+                break;
             } else {
                 problem_name = problem_names[problem_iter].clone();
                 problem_iter += 1;
@@ -1103,15 +1174,17 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
                 parsed_problems.insert(response_url);
             }
             let data = Value::Object(contest_data.clone());
-            fs::File::create(".preparsed_samples").unwrap().write(serde_json::to_string(&data).unwrap().as_bytes()).unwrap();
+            fs::File::create(".preparsed_samples")
+                .unwrap()
+                .write(serde_json::to_string(&data).unwrap().as_bytes())
+                .unwrap();
         } else {
             create_tests_from_json(&data);
             return;
         }
     }
 
-    if parse_contest {
-    }
+    if parse_contest {}
 }
 
 fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
@@ -1184,7 +1257,7 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         TemplateType::Start => "start",
         TemplateType::Tstart => "tstart",
         TemplateType::Gcj => "gcj",
-        TemplateType::Gstart => "gstart"
+        TemplateType::Gstart => "gstart",
     };
 
     let mut template_path = get_templates_path();
@@ -1205,14 +1278,14 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
                     return Some(line[ind..].to_string());
                 }
                 let next_ind = line[ind..].find("]]").unwrap() + ind;
-                let filter = line[ind+2..next_ind].split(':').collect::<Vec<_>>();
+                let filter = line[ind + 2..next_ind].split(':').collect::<Vec<_>>();
                 let filter_type = filter[0];
                 let values = filter[1].split('|').collect::<Vec<_>>();
 
                 let good_line = match filter_type {
                     "os" => values.contains(&env::consts::OS),
                     "type" => values.contains(&template_type),
-                    _ => false
+                    _ => false,
                 };
                 if !good_line {
                     return None;
@@ -1232,7 +1305,10 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         }
 
         let now = Local::now();
-        template = template.replace("\\$", "$").replace("${1:date}", &now.format("%d.%m.%Y %H:%M:%S").to_string()).to_string();
+        template = template
+            .replace("\\$", "$")
+            .replace("${1:date}", &now.format("%d.%m.%Y %H:%M:%S").to_string())
+            .to_string();
 
         let mut cursor_expr = "$0";
         if template.contains("${0:}") {
@@ -1241,7 +1317,9 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
 
         if template.contains(cursor_expr) {
             position.0 = template[..template.find(cursor_expr).unwrap()].matches("\n").count();
-            position.1 = template.split("\n").collect::<Vec<_>>()[position.0].find(cursor_expr).unwrap();
+            position.1 = template.split("\n").collect::<Vec<_>>()[position.0]
+                .find(cursor_expr)
+                .unwrap();
 
             position.0 += 1;
             position.1 += 1;
@@ -1258,9 +1336,15 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
 
     if OPEN_FILE_ON_CREATION {
         if OPEN_FILE_WITH == "subl" || OPEN_FILE_WITH == "subl.exe" {
-            std::process::Command::new(OPEN_FILE_WITH).arg(format!("{}:{}:{}", full_name, position.0, position.1)).output().unwrap();
+            std::process::Command::new(OPEN_FILE_WITH)
+                .arg(format!("{}:{}:{}", full_name, position.0, position.1))
+                .output()
+                .unwrap();
         } else {
-            std::process::Command::new(OPEN_FILE_WITH).arg(format!("{}", full_name)).output().unwrap();
+            std::process::Command::new(OPEN_FILE_WITH)
+                .arg(format!("{}", full_name))
+                .output()
+                .unwrap();
         }
     }
 }
@@ -1326,9 +1410,18 @@ fn submit(args: &Vec<String>, _params: &HashMap<String, String>) {
 
         let client = reqwest::blocking::Client::builder().cookie_store(true)
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36").build().unwrap();
-        let response = client.get("https://codeforces.com/enter").send().unwrap().text().unwrap();
+        let response = client
+            .get("https://codeforces.com/enter")
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
 
-        let ftaa = &thread_rng().sample_iter(&Alphanumeric).take(18).collect::<String>().to_lowercase();
+        let ftaa = &thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(18)
+            .collect::<String>()
+            .to_lowercase();
         let bfaa = "58b9b2061cf94495c1ff57f24750dcf5";
 
         let form = [
@@ -1349,7 +1442,12 @@ fn submit(args: &Vec<String>, _params: &HashMap<String, String>) {
             std::process::exit(1);
         }
 
-        let response = client.get(&format!("https://codeforces.com/contest/{}/submit", contest)).send().unwrap().text().unwrap();
+        let response = client
+            .get(&format!("https://codeforces.com/contest/{}/submit", contest))
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
         let csrf = extract_codeforces_csrf(&response);
 
         let form = [
@@ -1365,7 +1463,14 @@ fn submit(args: &Vec<String>, _params: &HashMap<String, String>) {
             ("programTypeId", &language_code.to_string()),
         ];
 
-        client.post(&format!("https://codeforces.com/contest/{}/submit?csrf_token={}", contest, csrf)).form(&form).send().unwrap();
+        client
+            .post(&format!(
+                "https://codeforces.com/contest/{}/submit?csrf_token={}",
+                contest, csrf
+            ))
+            .form(&form)
+            .send()
+            .unwrap();
     } else {
         eprintln!("Can submit only on codeforces");
         std::process::exit(1);
@@ -1414,9 +1519,15 @@ fn make_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     }
 
     if from_zero {
-        fs::File::create(&["in", &index.to_string()].concat()).unwrap().write(fs::read_to_string("in").unwrap().as_bytes()).unwrap();
+        fs::File::create(&["in", &index.to_string()].concat())
+            .unwrap()
+            .write(fs::read_to_string("in").unwrap().as_bytes())
+            .unwrap();
         if let Ok(answer) = fs::read_to_string("ans") {
-            fs::File::create(&["ans", &index.to_string()].concat()).unwrap().write(answer.as_bytes()).unwrap();
+            fs::File::create(&["ans", &index.to_string()].concat())
+                .unwrap()
+                .write(answer.as_bytes())
+                .unwrap();
         }
         return;
     }
@@ -1448,9 +1559,15 @@ fn make_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     let input = &lines[0];
     let answer = &lines[1];
 
-    fs::File::create(&["in", &index.to_string()].concat()).unwrap().write(input.join("").as_bytes()).unwrap();
+    fs::File::create(&["in", &index.to_string()].concat())
+        .unwrap()
+        .write(input.join("").as_bytes())
+        .unwrap();
     if !answer.is_empty() {
-        fs::File::create(&["ans", &index.to_string()].concat()).unwrap().write(answer.join("").as_bytes()).unwrap();
+        fs::File::create(&["ans", &index.to_string()].concat())
+            .unwrap()
+            .write(answer.join("").as_bytes())
+            .unwrap();
     }
 }
 
@@ -1481,9 +1598,7 @@ fn measure_time(args: &Vec<String>, _params: &HashMap<String, String>) {
     fix_unix_filename_vec(&mut filename_vec);
 
     let now = Instant::now();
-    let mut p = match Popen::create(&filename_vec[..], PopenConfig {
-        ..Default::default()
-    }) {
+    let mut p = match Popen::create(&filename_vec[..], PopenConfig { ..Default::default() }) {
         Ok(x) => x,
         Err(_) => {
             eprintln!("Error when starting process {:?}", filename_vec);
@@ -1617,7 +1732,10 @@ fn split_test(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let split_positions = fs::read_to_string("err").unwrap().trim().to_string();
     let split_positions = split_positions.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
-    let mut split_positions = split_positions.iter().map(|x| x.parse::<usize>().unwrap()).collect::<Vec<usize>>();
+    let mut split_positions = split_positions
+        .iter()
+        .map(|x| x.parse::<usize>().unwrap())
+        .collect::<Vec<usize>>();
     split_positions.insert(0, 0);
 
     let input = fs::read_to_string(input).unwrap().trim().to_string();
@@ -1627,11 +1745,12 @@ fn split_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     fs::remove_dir_all("tests").unwrap();
     fs::create_dir_all("tests").unwrap();
 
-    for i in 1..split_positions.len()-1 {
-        let test = input[split_positions[i] + 1 .. split_positions[i + 1]].to_string();
+    for i in 1..split_positions.len() - 1 {
+        let test = input[split_positions[i] + 1..split_positions[i + 1]].to_string();
 
         let mut file = fs::File::create(format!("tests/{:0>3}", i)).unwrap();
-        file.write(&["1\n".to_string(), test, "\n".to_string()].concat().as_bytes()).unwrap();
+        file.write(&["1\n".to_string(), test, "\n".to_string()].concat().as_bytes())
+            .unwrap();
     }
 
     print!("\r                                    ");
@@ -1692,8 +1811,10 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
         if line.starts_with("int main(") {
             new_main.push("int main(int argc, char *argv[]) {".to_string());
         } else if line.contains("cout << \"Case #\"") {
-            new_main.push(format!("{}cout << \"Case #\" << stoi(argv[1]) << \": \";",
-                String::from_utf8(vec![b' '; line.find('c').unwrap()]).unwrap()));
+            new_main.push(format!(
+                "{}cout << \"Case #\" << stoi(argv[1]) << \": \";",
+                String::from_utf8(vec![b' '; line.find('c').unwrap()]).unwrap()
+            ));
         } else {
             new_main.push(line.to_string());
         }
@@ -1713,10 +1834,16 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut tests = fs::read_dir("tests")
         .unwrap()
         .map(|x| x.unwrap())
-        .map(|x| (x.path().file_name().unwrap().to_str().unwrap().to_string(), x.metadata().unwrap().len()))
+        .map(|x| {
+            (
+                x.path().file_name().unwrap().to_str().unwrap().to_string(),
+                x.metadata().unwrap().len(),
+            )
+        })
         .collect::<Vec<_>>();
     tests.sort_by(|a, b| b.1.cmp(&a.1));
-    let tests = tests.into_iter()
+    let tests = tests
+        .into_iter()
         .map(|(x, _)| x)
         .filter(|x| !x.contains('_'))
         .collect::<Vec<_>>();
@@ -1731,7 +1858,10 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
     for c in format!("[{}]", String::from_utf8(vec![b' '; tests.len()]).unwrap()).chars() {
         result_string_mutex.lock().unwrap().push(c as u8);
     }
-    print!("{}", String::from_utf8(result_string_mutex.lock().unwrap().to_vec()).unwrap());
+    print!(
+        "{}",
+        String::from_utf8(result_string_mutex.lock().unwrap().to_vec()).unwrap()
+    );
     io::stdout().flush().unwrap();
 
     let failed_tests = Arc::new(Mutex::new(0));
@@ -1747,10 +1877,18 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
             let test_num = input.parse::<usize>().unwrap();
 
             local_result_string.lock().unwrap()[test_num] = b'.';
-            print!("\r{}", String::from_utf8(local_result_string.lock().unwrap().to_vec()).unwrap());
+            print!(
+                "\r{}",
+                String::from_utf8(local_result_string.lock().unwrap().to_vec()).unwrap()
+            );
             io::stdout().flush().unwrap();
 
-            let result = run_and_wait(&[&fix_unix_filename("cpr_tmp_file"), &input], &format!("tests/{}", input), &format!("tests/{}_out", input), None);
+            let result = run_and_wait(
+                &[&fix_unix_filename("cpr_tmp_file"), &input],
+                &format!("tests/{}", input),
+                &format!("tests/{}_out", input),
+                None,
+            );
 
             if result.success() {
                 local_result_string.lock().unwrap()[test_num] = b'+';
@@ -1758,7 +1896,10 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
                 local_result_string.lock().unwrap()[test_num] = b'X';
                 *local_failed_tests.lock().unwrap() += 1;
             }
-            print!("\r{}", String::from_utf8(local_result_string.lock().unwrap().to_vec()).unwrap());
+            print!(
+                "\r{}",
+                String::from_utf8(local_result_string.lock().unwrap().to_vec()).unwrap()
+            );
             io::stdout().flush().unwrap();
         });
     }
@@ -1786,7 +1927,6 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
 }
 
 // ************************************* main *************************************
-
 
 fn main() {
     let args: Vec<String> = env::args().collect::<Vec<String>>()[1..].to_vec();
@@ -1829,17 +1969,16 @@ fn main() {
     }
 }
 
-
 // *********************************** internal ***********************************
 
 fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) -> ExitStatus {
     let stdin = match fin {
         "" => Redirection::Pipe,
-        name => Redirection::File(fs::File::open(name).unwrap())
+        name => Redirection::File(fs::File::open(name).unwrap()),
     };
     let stdout = match fout {
         "" => Redirection::Pipe,
-        name => Redirection::File(fs::File::create(name).unwrap())
+        name => Redirection::File(fs::File::create(name).unwrap()),
     };
 
     let mut filename_vec: Vec<String> = Vec::new();
@@ -1849,12 +1988,15 @@ fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) 
 
     fix_unix_filename_vec(&mut filename_vec);
 
-    let mut p = match Popen::create(&filename_vec[..], PopenConfig {
-        stdin: stdin,
-        stdout: stdout,
-        stderr: Redirection::File(fs::File::create("err").unwrap()),
-        ..Default::default()
-    }) {
+    let mut p = match Popen::create(
+        &filename_vec[..],
+        PopenConfig {
+            stdin: stdin,
+            stdout: stdout,
+            stderr: Redirection::File(fs::File::create("err").unwrap()),
+            ..Default::default()
+        },
+    ) {
         Ok(x) => x,
         Err(_) => {
             eprintln!("Error when starting process {:?}", filename_vec);
@@ -1863,7 +2005,8 @@ fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) 
     };
 
     if let Some(timeout) = timeout {
-        p.wait_timeout(std::time::Duration::from_millis((timeout * 1000.0).round() as u64)).unwrap();
+        p.wait_timeout(std::time::Duration::from_millis((timeout * 1000.0).round() as u64))
+            .unwrap();
     } else {
         p.wait().unwrap();
     }
@@ -1876,7 +2019,12 @@ fn run_and_wait(filename: &[&str], fin: &str, fout: &str, timeout: Option<f64>) 
 }
 
 fn read_lines_trim(filename: &str) -> Vec<String> {
-    let mut res = fs::read_to_string(filename).unwrap().trim_end().split("\n").map(String::from).collect::<Vec<_>>();
+    let mut res = fs::read_to_string(filename)
+        .unwrap()
+        .trim_end()
+        .split("\n")
+        .map(String::from)
+        .collect::<Vec<_>>();
     for i in 0..res.len() {
         res[i] = res[i].trim_end().to_string();
     }
@@ -1923,8 +2071,17 @@ fn compare_output(fout: &str, fans: &str, eps: Option<f64>) -> bool {
 }
 
 fn get_available_tests() -> Vec<i32> {
-    let mut v: Vec<_> = fs::read_dir(".").unwrap().map(|x| x.unwrap().path().file_name().unwrap().to_str().unwrap().to_string()).collect();
-    v.retain(|x| x.starts_with("in") && match x[2..].parse::<i32>() { Ok(_) => true, Err(_) => false });
+    let mut v: Vec<_> = fs::read_dir(".")
+        .unwrap()
+        .map(|x| x.unwrap().path().file_name().unwrap().to_str().unwrap().to_string())
+        .collect();
+    v.retain(|x| {
+        x.starts_with("in")
+            && match x[2..].parse::<i32>() {
+                Ok(_) => true,
+                Err(_) => false,
+            }
+    });
     v.iter().map(|x| x[2..].parse().unwrap()).collect()
 }
 
@@ -1936,7 +2093,14 @@ fn get_params() -> HashMap<String, String> {
         if url.as_bytes().last().unwrap() != &b'/' {
             url.push('/');
         }
-        let folder = std::env::current_dir().unwrap().as_path().file_name().unwrap().to_str().unwrap().to_string();
+        let folder = std::env::current_dir()
+            .unwrap()
+            .as_path()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         url += &folder;
         outer_params.insert("url".to_string(), url);
     }
@@ -1969,7 +2133,7 @@ fn write_params(filename: &str, params: &mut HashMap<String, String>) {
     }
 }
 
-fn add_param(key: &str, value :&str, params: &mut HashMap<String, String>) {
+fn add_param(key: &str, value: &str, params: &mut HashMap<String, String>) {
     params.insert(key.to_string(), value.to_string());
 
     write_params("params", params);
@@ -1997,7 +2161,7 @@ fn get_problem_source() -> ProblemSource {
     if path.to_lowercase().contains("codeforces") {
         let mut contest = match parts[parts.len() - 2].parse::<i32>() {
             Ok(x) => x,
-            Err(_) => -1
+            Err(_) => -1,
         };
         let mut problem = parts[parts.len() - 1].to_string();
         if contest == -1 {
@@ -2038,14 +2202,21 @@ fn guess_url_from_path() -> Option<String> {
     let problem_source = get_problem_source();
     if let ProblemSource::Codeforces(contest, problem) = problem_source {
         if contest.parse::<i32>().unwrap() < 100000 {
-            return Some(format!("https://codeforces.com/contest/{}/problem/{}", contest, problem));
+            return Some(format!(
+                "https://codeforces.com/contest/{}/problem/{}",
+                contest, problem
+            ));
         } else {
             return Some(format!("https://codeforces.com/gym/{}/problem/{}", contest, problem));
         }
     } else if let ProblemSource::CodeChef(contest, problem) = problem_source {
         return Some(format!("https://www.codechef.com/{}/problems/{}", contest, problem));
     } else if let ProblemSource::AtCoder(contest, problem) = problem_source {
-        return Some(format!("https://atcoder.jp/contests/{0}/tasks/{0}_{1}", contest, problem.to_lowercase()));
+        return Some(format!(
+            "https://atcoder.jp/contests/{0}/tasks/{0}_{1}",
+            contest,
+            problem.to_lowercase()
+        ));
     } else if let ProblemSource::CodinGamePuzzle(problem) = problem_source {
         return Some(format!("https://www.codingame.com/ide/puzzle/{}", problem));
     } else if let ProblemSource::Cses(problem) = problem_source {
@@ -2061,7 +2232,7 @@ fn extract_codeforces_csrf(html: &str) -> String {
 }
 
 fn get_login_password(source: &str) -> (String, String) {
-    let settings: Value = match serde_json::from_str(& match fs::read_to_string(SETTINGS_FILE) {
+    let settings: Value = match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
         Ok(x) => x,
         Err(_) => {
             eprintln!("Can't open \"settings.json\"");
@@ -2091,7 +2262,16 @@ fn get_login_password(source: &str) -> (String, String) {
     (login.to_string(), password.to_string())
 }
 
-fn run_interactive(name: &str) -> (std::process::Child, std::process::ChildStdin, Receiver<String>, Receiver<String>, Sender<i32>, Sender<i32>) {
+fn run_interactive(
+    name: &str,
+) -> (
+    std::process::Child,
+    std::process::ChildStdin,
+    Receiver<String>,
+    Receiver<String>,
+    Sender<i32>,
+    Sender<i32>,
+) {
     let (txout, rxout): (Sender<String>, Receiver<String>) = mpsc::channel();
     let (txerr, rxerr): (Sender<String>, Receiver<String>) = mpsc::channel();
     let (txend1, rxend1): (Sender<i32>, Receiver<i32>) = mpsc::channel();
@@ -2151,13 +2331,17 @@ fn compile_cpr_tmp_file() -> Result<(), ()> {
     print!("Compiling...");
     io::stdout().flush().unwrap();
 
-    let mut p = Popen::create(&format!("g++ --std=c++20 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -DHOUSE -Winvalid-pch {} -I{}",
-                                       if cfg!(unix) { "" } else { "-Wl,-stack,1073741824" },
-                                       PRECOMPILED_PATH)
-        .split_whitespace().collect::<Vec<_>>(),
-        PopenConfig {
-            ..Default::default()
-    }).unwrap();
+    let mut p = Popen::create(
+        &format!(
+            "g++ --std=c++20 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -DHOUSE -Winvalid-pch {} -I{}",
+            if cfg!(unix) { "" } else { "-Wl,-stack,1073741824" },
+            PRECOMPILED_PATH
+        )
+        .split_whitespace()
+        .collect::<Vec<_>>(),
+        PopenConfig { ..Default::default() },
+    )
+    .unwrap();
     p.wait().unwrap();
     if let None = p.poll() {
         p.terminate().unwrap();
@@ -2166,7 +2350,7 @@ fn compile_cpr_tmp_file() -> Result<(), ()> {
     let result = p.poll().unwrap();
 
     if !result.success() {
-        return Err(())
+        return Err(());
     }
     print!("\r");
     Ok(())

@@ -1,0 +1,11 @@
+/*
+    author:  Maksim1744
+    created: ${1:date}
+*/
+
+use rlib_io::*;
+
+fn main() {
+    make_io!(cin, cout);
+    ${0:}
+}
