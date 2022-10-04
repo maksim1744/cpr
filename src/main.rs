@@ -45,6 +45,7 @@ const LOCAL_PARAMS_NAME: &str = "params";
 const PRECOMPILED_PATH: &str = "/home/maksim/tools/precompiled/O2";
 #[cfg(not(target_os = "windows"))]
 const SETTINGS_FILE: &str = "/home/maksim/tools/settings/settings.json";
+const RUST_LIBS_PATH: &str = "/mnt/c/RLibs";
 
 #[cfg(target_os = "windows")]
 const PRECOMPILED_PATH: &str = "C:/MyPath/precompiled/O2";
@@ -1204,7 +1205,7 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         return;
     }
     let mut filename = String::from(DEFAULT_FILE_NAME);
-    let mut extension = String::from(DEFAULT_FILE_EXTENSION);
+    let mut extension = get_default_file_extension();
 
     let mut i = 0;
 
@@ -1235,6 +1236,10 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
             }
         }
         i += 1;
+    }
+    if extension == "rs" {
+        init_rust_directory();
+        filename = format!("src/bin/{}", filename);
     }
     let full_name = &[&filename, ".", &extension].concat();
     if Path::new(full_name).exists() {
@@ -1665,7 +1670,7 @@ fn split_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         std::process::exit(1);
     }
 
-    filename = [filename, String::from("."), DEFAULT_FILE_EXTENSION.to_string()].concat();
+    filename = [filename, String::from("."), get_default_file_extension()].concat();
 
     let mut new_main: Vec<String> = Vec::new();
     let file = fs::read_to_string(filename).unwrap().trim().to_string();
@@ -1801,7 +1806,7 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
         i += 1;
     }
 
-    filename = [filename, String::from("."), DEFAULT_FILE_EXTENSION.to_string()].concat();
+    filename = [filename, String::from("."), get_default_file_extension()].concat();
 
     let mut new_main: Vec<String> = Vec::new();
     let file = fs::read_to_string(filename).unwrap().trim().to_string();
@@ -1926,6 +1931,40 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
     }
 }
 
+fn config(args: &Vec<String>, _params: &HashMap<String, String>) {
+    if args.len() != 2 {
+        let s = indoc! {"
+            Usage: cpr config [param_name] [param_value]
+
+            Flags:
+                --help              Display this message
+        "};
+        print!("{}", s);
+        return;
+    }
+
+    let mut settings: Value = match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
+        Ok(x) => x,
+        Err(_) => "{}".to_string(),
+    }) {
+        Ok(x) => x,
+        Err(_) => {
+            eprintln!("Can't parse json from \"settings.json\"");
+            std::process::exit(1);
+        }
+    };
+
+    if args[0] == "lang" {
+        settings["config"][args[0].clone()] = serde_json::Value::String(args[1].clone());
+    } else {
+        eprintln!("Unknown param_name [{}]", args[0]);
+        std::process::exit(1);
+    }
+
+    std::fs::create_dir_all(Path::new(SETTINGS_FILE).parent().unwrap()).unwrap();
+    fs::write(SETTINGS_FILE, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+}
+
 // ************************************* main *************************************
 
 fn main() {
@@ -1963,6 +2002,8 @@ fn main() {
         multirun(&args[1..].to_vec(), &params);
     } else if args[0] == "approx" {
         approx::approx(&args[1..].to_vec(), &params);
+    } else if args[0] == "config" {
+        config(&args[1..].to_vec(), &params);
     } else {
         eprintln!("Unknown option \"{}\"", args[0]);
         std::process::exit(1);
@@ -2262,6 +2303,26 @@ fn get_login_password(source: &str) -> (String, String) {
     (login.to_string(), password.to_string())
 }
 
+fn get_default_file_extension() -> String {
+    let settings: Value = match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
+        Ok(x) => x,
+        Err(_) => {
+            eprintln!("Can't open \"settings.json\"");
+            std::process::exit(1);
+        }
+    }) {
+        Ok(x) => x,
+        Err(_) => {
+            eprintln!("Can't parse json from \"settings.json\"");
+            std::process::exit(1);
+        }
+    };
+    settings["config"]["lang"]
+        .as_str()
+        .unwrap_or(DEFAULT_FILE_EXTENSION)
+        .to_string()
+}
+
 fn run_interactive(
     name: &str,
 ) -> (
@@ -2363,4 +2424,34 @@ fn get_templates_path() -> std::path::PathBuf {
     exe_path.pop();
     exe_path.push("templates");
     exe_path
+}
+
+fn init_rust_directory() {
+    std::fs::create_dir_all("src/bin").unwrap();
+    if !std::path::Path::new("Cargo.toml").exists() {
+        let mut file = fs::File::create("Cargo.toml").unwrap();
+        file.write("[package]\n".as_bytes()).unwrap();
+        file.write("name = \"d\"\n".as_bytes()).unwrap();
+        file.write("version = \"0.1.0\"\n".as_bytes()).unwrap();
+        file.write("edition = \"2021\"\n".as_bytes()).unwrap();
+        file.write("\n".as_bytes()).unwrap();
+        file.write("[dependencies]\n".as_bytes()).unwrap();
+
+        let mut libs: Vec<String> = Vec::new();
+        for path in fs::read_dir(RUST_LIBS_PATH).unwrap() {
+            let path = path.unwrap().path();
+            if !path.is_dir() {
+                continue;
+            }
+            if path.join("Cargo.toml").exists() {
+                libs.push(path.file_name().unwrap().to_str().unwrap().to_string());
+            }
+        }
+        libs.sort();
+
+        for lib in libs.into_iter() {
+            file.write(format!("rlib_{} = {{ \"path\" = \"{}/{}\" }}\n", lib, RUST_LIBS_PATH, lib).as_bytes())
+                .unwrap();
+        }
+    }
 }
