@@ -2429,29 +2429,40 @@ fn get_templates_path() -> std::path::PathBuf {
 fn init_rust_directory() {
     std::fs::create_dir_all("src/bin").unwrap();
     if !std::path::Path::new("Cargo.toml").exists() {
+        let lines = fs::read_to_string(get_templates_path().join("Cargo.toml")).unwrap();
         let mut file = fs::File::create("Cargo.toml").unwrap();
-        file.write("[package]\n".as_bytes()).unwrap();
-        file.write("name = \"d\"\n".as_bytes()).unwrap();
-        file.write("version = \"0.1.0\"\n".as_bytes()).unwrap();
-        file.write("edition = \"2021\"\n".as_bytes()).unwrap();
-        file.write("\n".as_bytes()).unwrap();
-        file.write("[dependencies]\n".as_bytes()).unwrap();
+        for line in lines.trim().split('\n') {
+            if line.trim() == "[rlib]" {
+                for folder in [RUST_LIBS_PATH, &[RUST_LIBS_PATH, "/external"].concat()] {
+                    let mut libs: Vec<(String, String)> = Vec::new();
+                    for path in fs::read_dir(folder).unwrap() {
+                        let path = path.unwrap().path();
+                        if !path.is_dir() {
+                            continue;
+                        }
+                        if path.join("Cargo.toml").exists() {
+                            let lines = fs::read_to_string(path.join("Cargo.toml")).unwrap();
+                            if let Some(name) = lines.trim().split('\n').find(|line| line.starts_with("name")) {
+                                let name = name.split('=').skip(1).next().unwrap().trim();
+                                libs.push((
+                                    name[1..name.len() - 1].to_string(),
+                                    path.file_name().unwrap().to_str().unwrap().to_string(),
+                                ));
+                            }
+                        }
+                    }
+                    libs.sort();
 
-        let mut libs: Vec<String> = Vec::new();
-        for path in fs::read_dir(RUST_LIBS_PATH).unwrap() {
-            let path = path.unwrap().path();
-            if !path.is_dir() {
-                continue;
+                    for (name, path) in libs.into_iter() {
+                        file.write(format!("{} = {{ \"path\" = \"{}/{}\" }}\n", name, folder, path).as_bytes())
+                            .unwrap();
+                    }
+                    file.write(&[b'\n']).unwrap();
+                }
+            } else {
+                file.write(line.as_bytes()).unwrap();
+                file.write(&[b'\n']).unwrap();
             }
-            if path.join("Cargo.toml").exists() {
-                libs.push(path.file_name().unwrap().to_str().unwrap().to_string());
-            }
-        }
-        libs.sort();
-
-        for lib in libs.into_iter() {
-            file.write(format!("rlib_{} = {{ \"path\" = \"{}/{}\" }}\n", lib, RUST_LIBS_PATH, lib).as_bytes())
-                .unwrap();
         }
     }
 }
