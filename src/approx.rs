@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
-use std::time::Instant;
+use std::io::{stdout, Write};
 use std::path::Path;
-use std::io::{Write, stdout};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Instant;
 
 use subprocess::{Popen, PopenConfig, Redirection};
 
@@ -16,12 +16,12 @@ use threadpool::ThreadPool;
 
 use crate::util::*;
 
-mod notion;
+mod client_wrapper;
 mod data;
+mod mtime;
+mod notion;
 mod test_info;
 mod test_log;
-mod client_wrapper;
-mod mtime;
 
 use data::*;
 use test_info::*;
@@ -50,7 +50,6 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
         }
     }
 
-
     let config = read_config();
 
     let tests_info: Arc<Mutex<Vec<TestInfo>>> = Arc::new(Mutex::new(Vec::new()));
@@ -77,7 +76,10 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut stdout = stdout();
     // stdout.suspend_raw_mode().unwrap();
 
-    let title = format!("| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |", "", "time", "prev", "new", "delta");
+    let title = format!(
+        "| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |",
+        "", "time", "prev", "new", "delta"
+    );
     write!(stdout, "{}\n", title).unwrap();
     let splitter: String = title.chars().map(|c| if c == '|' { '|' } else { '-' }).collect();
     write!(stdout, "{}", splitter).unwrap();
@@ -90,7 +92,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let stdout = Arc::new(Mutex::new(stdout));
 
-    for test in 1..config.tests+1 {
+    for test in 1..config.tests + 1 {
         let index: usize = tests_info.lock().unwrap().len();
         let tests = config.tests;
 
@@ -135,14 +137,17 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
             // calculate score from .ans
             if Path::new(&format!("tests/{}.ans", test_name)).exists() {
                 let mut filename_vec = config.scorer.as_ref().unwrap().clone();
-                filename_vec.push(format!("tests/{}.in",  test_name));
+                filename_vec.push(format!("tests/{}.in", test_name));
                 filename_vec.push(format!("tests/{}.ans", test_name));
 
-                let mut p = match Popen::create(&filename_vec[..], PopenConfig {
-                    stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
-                    stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
-                    ..Default::default()
-                }) {
+                let mut p = match Popen::create(
+                    &filename_vec[..],
+                    PopenConfig {
+                        stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
+                        stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
+                        ..Default::default()
+                    },
+                ) {
                     Ok(x) => x,
                     Err(_) => {
                         eprintln!("Error when starting process {:?}", filename_vec);
@@ -177,10 +182,13 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
                 filename_vec.push(test_name.clone());
 
                 let now = Instant::now();
-                let mut p = match Popen::create(&filename_vec[..], PopenConfig {
-                    stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
-                    ..Default::default()
-                }) {
+                let mut p = match Popen::create(
+                    &filename_vec[..],
+                    PopenConfig {
+                        stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
+                        ..Default::default()
+                    },
+                ) {
                     Ok(x) => x,
                     Err(_) => {
                         eprintln!("Error when starting process {:?}", filename_vec);
@@ -209,14 +217,17 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
             // calculate score from .out
             {
                 let mut filename_vec = config.scorer.as_ref().unwrap().clone();
-                filename_vec.push(format!("tests/{}.in",  test_name));
+                filename_vec.push(format!("tests/{}.in", test_name));
                 filename_vec.push(format!("tests/{}.out", test_name));
 
-                let mut p = match Popen::create(&filename_vec[..], PopenConfig {
-                    stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
-                    stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
-                    ..Default::default()
-                }) {
+                let mut p = match Popen::create(
+                    &filename_vec[..],
+                    PopenConfig {
+                        stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
+                        stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
+                        ..Default::default()
+                    },
+                ) {
                     Ok(x) => x,
                     Err(_) => {
                         eprintln!("Error when starting process {:?}", filename_vec);
@@ -276,14 +287,20 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     // finalize
     {
-        let mut p = match Popen::create(&config.finalize.as_ref().unwrap().clone(), PopenConfig {
-            stdout: Redirection::Pipe,
-            stderr: Redirection::Pipe,
-            ..Default::default()
-        }) {
+        let mut p = match Popen::create(
+            &config.finalize.as_ref().unwrap().clone(),
+            PopenConfig {
+                stdout: Redirection::Pipe,
+                stderr: Redirection::Pipe,
+                ..Default::default()
+            },
+        ) {
             Ok(x) => x,
             Err(_) => {
-                eprintln!("Error when starting process {:?}", &config.finalize.as_ref().unwrap().clone());
+                eprintln!(
+                    "Error when starting process {:?}",
+                    &config.finalize.as_ref().unwrap().clone()
+                );
                 std::process::exit(1)
             }
         };

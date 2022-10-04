@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
 use std::io::{self};
 
@@ -6,13 +6,11 @@ use indoc::indoc;
 
 use std::rc::Rc;
 
+use druid::kurbo::Line;
+use druid::piet::{FontFamily, Text, TextLayout, TextLayoutBuilder};
 use druid::widget::prelude::*;
-use druid::widget::{Flex, Widget, MainAxisAlignment, CrossAxisAlignment};
-use druid::{
-    Size, AppLauncher, WindowDesc, Data, Lens, Color, Rect, Point, WidgetExt, MouseButton,
-};
-use druid::kurbo::{Line};
-use druid::piet::{FontFamily, Text, TextLayoutBuilder, TextLayout};
+use druid::widget::{CrossAxisAlignment, Flex, MainAxisAlignment, Widget};
+use druid::{AppLauncher, Color, Data, Lens, MouseButton, Point, Rect, Size, WidgetExt, WindowDesc};
 
 const PADDING: f64 = 8.0;
 
@@ -90,42 +88,29 @@ impl Widget<AppData> for DrawingWidget {
                     self.last_mouse_pos = e.pos;
                     ctx.request_paint();
                 }
-            },
+            }
             Event::Wheel(e) => {
                 self.scale = self.scale * 0.01_f64.max(1.1_f64.powf(-e.wheel_delta.y / 25.0));
                 ctx.request_paint();
-            },
+            }
             Event::MouseDown(e) => {
                 self.last_mouse_pos = e.pos.clone();
-            },
+            }
             Event::Command(_) => {
                 self.first_time = true;
                 ctx.request_paint();
-            },
+            }
             _ => (),
         }
     }
 
-    fn lifecycle(
-        &mut self,
-        _ctx: &mut LifeCycleCtx,
-        _event: &LifeCycle,
-        _data: &AppData,
-        _env: &Env,
-    ) {
-    }
+    fn lifecycle(&mut self, _ctx: &mut LifeCycleCtx, _event: &LifeCycle, _data: &AppData, _env: &Env) {}
 
     fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &AppData, _data: &AppData, _env: &Env) {
         ctx.request_paint();
     }
 
-    fn layout(
-        &mut self,
-        _layout_ctx: &mut LayoutCtx,
-        bc: &BoxConstraints,
-        _data: &AppData,
-        _env: &Env,
-    ) -> Size {
+    fn layout(&mut self, _layout_ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &AppData, _env: &Env) -> Size {
         bc.max()
     }
 
@@ -133,7 +118,7 @@ impl Widget<AppData> for DrawingWidget {
         let size: Size = ctx.size();
         self.size = size.clone();
 
-        ctx.fill(Rect::from_origin_size(Point{x: 0.0, y: 0.0}, size), &BACKGROUND);
+        ctx.fill(Rect::from_origin_size(Point { x: 0.0, y: 0.0 }, size), &BACKGROUND);
 
         if self.first_time {
             self.refresh(ctx, data);
@@ -143,8 +128,11 @@ impl Widget<AppData> for DrawingWidget {
             for (j, item) in row.iter().enumerate() {
                 let mut text_pos = self.transform(Point::new((j as f64 + 0.5) * self.cell_width, i as f64 + 0.5));
 
-                if text_pos.x < -self.cell_width * self.scale || text_pos.y < -0.5 * self.scale ||
-                    text_pos.x > size.width + self.cell_width * self.scale || text_pos.y > size.height + 0.5 * self.scale {
+                if text_pos.x < -self.cell_width * self.scale
+                    || text_pos.y < -0.5 * self.scale
+                    || text_pos.x > size.width + self.cell_width * self.scale
+                    || text_pos.y > size.height + 0.5 * self.scale
+                {
                     continue;
                 }
 
@@ -167,16 +155,24 @@ impl Widget<AppData> for DrawingWidget {
         }
 
         for i in 0..data.width + 1 {
-            ctx.stroke(Line::new(
-                self.transform(Point::new(i as f64 * self.cell_width, 0.0)),
-                self.transform(Point::new(i as f64 * self.cell_width, data.mt.len() as f64))),
-                &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale);
+            ctx.stroke(
+                Line::new(
+                    self.transform(Point::new(i as f64 * self.cell_width, 0.0)),
+                    self.transform(Point::new(i as f64 * self.cell_width, data.mt.len() as f64)),
+                ),
+                &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8),
+                WIDTH * self.scale,
+            );
         }
         for i in 0..data.mt.len() + 1 {
-            ctx.stroke(Line::new(
-                self.transform(Point::new(0.0, i as f64)),
-                self.transform(Point::new(self.cell_width * data.width as f64, i as f64))),
-                &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale);
+            ctx.stroke(
+                Line::new(
+                    self.transform(Point::new(0.0, i as f64)),
+                    self.transform(Point::new(self.cell_width * data.width as f64, i as f64)),
+                ),
+                &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8),
+                WIDTH * self.scale,
+            );
         }
     }
 }
@@ -196,7 +192,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         return;
     }
 
-    let mut app_data = AppData{
+    let mut app_data = AppData {
         mt: Rc::new(Vec::new()),
         chars: false,
         width: 0,
@@ -250,30 +246,30 @@ fn make_layout() -> impl Widget<AppData> {
 
     Flex::row()
         .with_flex_child(
-            DrawingWidget{
+            DrawingWidget {
                 scale: 100.0,
                 center: Point::new(0.0, 0.0),
                 last_mouse_pos: Point::new(0.0, 0.0),
                 size: Size::new(0.0, 0.0),
                 first_time: true,
                 cell_width: 0.0,
-            }.with_id(drawing_widget_id),
-            1.0
+            }
+            .with_id(drawing_widget_id),
+            1.0,
         )
         .with_spacer(PADDING)
         .with_child(
-            Flex::column()
-                // .with_child(
-                //     Flex::row()
-                //         .with_child(
-                //             Flex::column()
-                                // .with_child(Checkbox::new("Show + target").lens(AppData::draw_as_wires[0]))
-                                // .with_spacer(PADDING)
-                                // .with_child(Checkbox::new("Show x target").lens(AppData::show_x_target))
-                                // .cross_axis_alignment(CrossAxisAlignment::Start),
-                //         )
-                // )
-                // .cross_axis_alignment(CrossAxisAlignment::Start),
+            Flex::column(), // .with_child(
+                            //     Flex::row()
+                            //         .with_child(
+                            //             Flex::column()
+                            // .with_child(Checkbox::new("Show + target").lens(AppData::draw_as_wires[0]))
+                            // .with_spacer(PADDING)
+                            // .with_child(Checkbox::new("Show x target").lens(AppData::show_x_target))
+                            // .cross_axis_alignment(CrossAxisAlignment::Start),
+                            //         )
+                            // )
+                            // .cross_axis_alignment(CrossAxisAlignment::Start),
         )
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .main_axis_alignment(MainAxisAlignment::End)

@@ -1,22 +1,18 @@
-use std::sync::{Arc, Mutex};
-use std::fs::File;
 use std::fs;
+use std::fs::File;
 use std::io::prelude::*;
+use std::sync::{Arc, Mutex};
 use std::{thread, time};
 
-use crate::approx::data::*;
-use crate::approx::test_info::*;
 use crate::approx::client_wrapper::*;
-use crate::approx::test_log::*;
+use crate::approx::data::*;
 use crate::approx::mtime;
+use crate::approx::test_info::*;
+use crate::approx::test_log::*;
 
 use reqwest::blocking::Client;
 
-pub fn start_updates(
-    config: Config,
-    tests_info: Arc<Mutex<Vec<TestInfo>>>,
-    total_info: Arc<Mutex<TestSuiteInfo>>
-) {
+pub fn start_updates(config: Config, tests_info: Arc<Mutex<Vec<TestInfo>>>, total_info: Arc<Mutex<TestSuiteInfo>>) {
     let mut file = File::create("err").unwrap();
 
     let client = ClientWrapper::new(Client::new());
@@ -31,19 +27,31 @@ pub fn start_updates(
     let mut logs: Vec<TestLog> = Vec::new();
 
     while !total_info.lock().unwrap().finished {
-        update_table(&config, &block, tests_info.lock().unwrap().clone(), &mut logs, &client, &mut file, None);
+        update_table(
+            &config,
+            &block,
+            tests_info.lock().unwrap().clone(),
+            &mut logs,
+            &client,
+            &mut file,
+            None,
+        );
         thread::sleep(time::Duration::from_millis(1000));
     }
     let total_info = total_info.lock().unwrap().clone();
-    update_table(&config, &block, tests_info.lock().unwrap().clone(), &mut logs, &client, &mut file, Some(&total_info));
+    update_table(
+        &config,
+        &block,
+        tests_info.lock().unwrap().clone(),
+        &mut logs,
+        &client,
+        &mut file,
+        Some(&total_info),
+    );
     update_total_score(&config, &block, &mut file, &client, &total_info);
 }
 
-fn create_block(
-    config: &Config,
-    file: &mut File,
-    client: &ClientWrapper
-) -> Option<NotionBlock> {
+fn create_block(config: &Config, file: &mut File, client: &ClientWrapper) -> Option<NotionBlock> {
     let notion = &config.notion.as_ref().unwrap();
     let db = &notion.database;
     let key = &notion.key;
@@ -63,11 +71,14 @@ fn create_block(
         }
     });
 
-    let response = client.client().post("https://api.notion.com/v1/pages")
+    let response = client
+        .client()
+        .post("https://api.notion.com/v1/pages")
         .header("Authorization", format!("Bearer {}", key))
         .header("Notion-Version", "2021-08-16")
         .json(&data)
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     let response = client.execute(response, file);
     if !response.is_some() {
@@ -82,7 +93,8 @@ fn create_block(
             file.write(b"Can't read page id from response\n").unwrap();
             return None;
         }
-    }.to_string();
+    }
+    .to_string();
 
     // creating block
     let data = serde_json::json!({
@@ -96,11 +108,14 @@ fn create_block(
         }]
     });
 
-    let response = client.client().patch(&format!("https://api.notion.com/v1/blocks/{}/children", page_id))
+    let response = client
+        .client()
+        .patch(&format!("https://api.notion.com/v1/blocks/{}/children", page_id))
         .header("Authorization", format!("Bearer {}", key))
         .header("Notion-Version", "2021-08-16")
         .json(&data)
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     let response = client.execute(response, file);
     if !response.is_some() {
@@ -112,15 +127,14 @@ fn create_block(
     let block_id = match data["results"][0]["id"].as_str() {
         Some(x) => x,
         None => {
-            file.write(format!("Can't read block id from response {}\n", data).as_bytes()).unwrap();
+            file.write(format!("Can't read block id from response {}\n", data).as_bytes())
+                .unwrap();
             return None;
         }
-    }.to_string();
+    }
+    .to_string();
 
-    Some(NotionBlock {
-        block_id,
-        page_id,
-    })
+    Some(NotionBlock { block_id, page_id })
 }
 
 fn update_table(
@@ -136,8 +150,10 @@ fn update_table(
 
     let mut content: Vec<NotionTextChunk> = Vec::new();
 
-    let title = format!("| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |",
-                             "",     "time",   "prev",    "new",  "delta",  "logs");
+    let title = format!(
+        "| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |",
+        "", "time", "prev", "new", "delta", "logs"
+    );
     let splitter: String = title.chars().map(|c| if c == '|' { '|' } else { '-' }).collect();
     content.push(NotionTextChunk::new(&(title + "\n" + &splitter + "\n"), "default"));
 
@@ -147,21 +163,30 @@ fn update_table(
     }
 
     if let Some(total_info) = total_info {
-        content.push(NotionTextChunk::new(&format!("\nTotal: {:.10}", total_info.score), "default"));
+        content.push(NotionTextChunk::new(
+            &format!("\nTotal: {:.10}", total_info.score),
+            "default",
+        ));
     }
     content.push(NotionTextChunk::new(
         &format!("\nLast update: {}", mtime::get_datetime(config.time_offset.unwrap())),
-        "default"
+        "default",
     ));
 
     let content = NotionTextChunk::fix_chunks_length(content);
     let data = NotionTextChunk::chunks_to_notion_content(content);
 
-    let response = client.client().patch(&format!("https://api.notion.com/v1/blocks/{}", block.block_id))
-        .header("Authorization", format!("Bearer {}", config.notion.as_ref().unwrap().key))
+    let response = client
+        .client()
+        .patch(&format!("https://api.notion.com/v1/blocks/{}", block.block_id))
+        .header(
+            "Authorization",
+            format!("Bearer {}", config.notion.as_ref().unwrap().key),
+        )
         .header("Notion-Version", "2021-08-16")
         .json(&data)
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     let response = client.execute(response, file);
     if !response.is_some() {
@@ -182,12 +207,7 @@ fn update_total_score(
         delta = "+".to_owned() + &delta;
     }
     let time = total_info.cpu_time / 1000;
-    let time = format!(
-        "{:0>2}:{:0>2}:{:0>2}",
-        time / 60 / 60,
-        time / 60 % 60,
-        time % 60,
-    );
+    let time = format!("{:0>2}:{:0>2}:{:0>2}", time / 60 / 60, time / 60 % 60, time % 60,);
     let data = serde_json::json!({
         "properties": {
             "Score": {
@@ -215,11 +235,17 @@ fn update_total_score(
         }
     });
 
-    let response = client.client().patch(&format!("https://api.notion.com/v1/pages/{}", block.page_id))
-        .header("Authorization", format!("Bearer {}", config.notion.as_ref().unwrap().key))
+    let response = client
+        .client()
+        .patch(&format!("https://api.notion.com/v1/pages/{}", block.page_id))
+        .header(
+            "Authorization",
+            format!("Bearer {}", config.notion.as_ref().unwrap().key),
+        )
         .header("Notion-Version", "2021-08-16")
         .json(&data)
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     let response = client.execute(response, file);
     if !response.is_some() {
@@ -241,7 +267,7 @@ fn update_logs(
 
     for (i, log) in logs.iter_mut().enumerate() {
         if tests_info[i].state == TestState::Queue || tests_info[i].state == TestState::Skipped {
-            continue
+            continue;
         }
         if let Ok(data) = fs::read_to_string(&format!("tests/{}", log.filename)) {
             if log.content.is_none() {

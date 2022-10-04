@@ -25,13 +25,7 @@ impl TestLog {
         }
     }
 
-    pub fn create_page(
-        &mut self,
-        config: &Config,
-        block: &NotionBlock,
-        client: &ClientWrapper,
-        file: &mut File,
-    ) {
+    pub fn create_page(&mut self, config: &Config, block: &NotionBlock, client: &ClientWrapper, file: &mut File) {
         let key = &config.notion.as_ref().unwrap().key;
 
         if self.page_id.is_empty() {
@@ -42,11 +36,14 @@ impl TestLog {
                 }
             });
 
-            let response = client.client().post("https://api.notion.com/v1/pages")
+            let response = client
+                .client()
+                .post("https://api.notion.com/v1/pages")
                 .header("Authorization", format!("Bearer {}", key))
                 .header("Notion-Version", "2021-08-16")
                 .json(&data)
-                .build().unwrap();
+                .build()
+                .unwrap();
 
             let response = client.execute(response, file);
             if !response.is_some() {
@@ -73,11 +70,14 @@ impl TestLog {
                 }]
             });
 
-            let response = client.client().patch(&format!("https://api.notion.com/v1/blocks/{}/children", self.page_id))
+            let response = client
+                .client()
+                .patch(&format!("https://api.notion.com/v1/blocks/{}/children", self.page_id))
                 .header("Authorization", format!("Bearer {}", key))
                 .header("Notion-Version", "2021-08-16")
                 .json(&data)
-                .build().unwrap();
+                .build()
+                .unwrap();
 
             let response = client.execute(response, file);
             if !response.is_some() {
@@ -89,10 +89,12 @@ impl TestLog {
             self.block_id = match data["results"][0]["id"].as_str() {
                 Some(x) => x,
                 None => {
-                    file.write(format!("Can't read log block id from response {}\n", data).as_bytes()).unwrap();
+                    file.write(format!("Can't read log block id from response {}\n", data).as_bytes())
+                        .unwrap();
                     return;
                 }
-            }.to_string();
+            }
+            .to_string();
         }
 
         self.content = Some(String::new());
@@ -116,23 +118,28 @@ impl TestLog {
         let date = mtime::get_date(config.time_offset.unwrap());
         let time = mtime::get_time(config.time_offset.unwrap());
 
-        let data = NotionTextChunk::chunks_to_notion_content(NotionTextChunk::fix_chunks_length(vec![
-            NotionTextChunk::new(
+        let data =
+            NotionTextChunk::chunks_to_notion_content(NotionTextChunk::fix_chunks_length(vec![NotionTextChunk::new(
                 &(content.to_owned() + &format!("\nLast update: {} {}", date, time)),
                 "default",
-            )
-        ]));
+            )]));
 
-        let response = client.client().patch(&format!("https://api.notion.com/v1/blocks/{}", self.block_id))
-            .header("Authorization", format!("Bearer {}", config.notion.as_ref().unwrap().key))
+        let response = client
+            .client()
+            .patch(&format!("https://api.notion.com/v1/blocks/{}", self.block_id))
+            .header(
+                "Authorization",
+                format!("Bearer {}", config.notion.as_ref().unwrap().key),
+            )
             .header("Notion-Version", "2021-08-16")
             .json(&data)
-            .build().unwrap();
+            .build()
+            .unwrap();
 
         let response = client.execute(response, file);
         if !response.is_some() {
             file.write(b"Can't update log file\n").unwrap();
-            return
+            return;
         }
 
         self.content = Some(content.to_string());

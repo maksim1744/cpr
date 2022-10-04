@@ -75,16 +75,22 @@ impl TestInfo {
         write!(stdout, " | ").unwrap();
         let mut delta = String::new();
         if self.prev_score.is_some() && self.new_score.is_some() {
-            delta = format!("{:.prec$}", self.new_score.unwrap() - self.prev_score.unwrap(), prec = precision);
+            delta = format!(
+                "{:.prec$}",
+                self.new_score.unwrap() - self.prev_score.unwrap(),
+                prec = precision
+            );
             if delta.as_bytes()[0] != b'-' && self.result != TestResult::Same {
                 delta = "+".to_string() + &delta;
             }
         }
-        stdout.execute(match self.result {
-            TestResult::Better => SetForegroundColor(Color::Green),
-            TestResult::Worse => SetForegroundColor(Color::Red),
-            _ => SetForegroundColor(Color::White),
-        }).unwrap();
+        stdout
+            .execute(match self.result {
+                TestResult::Better => SetForegroundColor(Color::Green),
+                TestResult::Worse => SetForegroundColor(Color::Red),
+                _ => SetForegroundColor(Color::White),
+            })
+            .unwrap();
         write!(stdout, "{: >12}", delta).unwrap();
         stdout.execute(SetForegroundColor(Color::White)).unwrap();
         write!(stdout, " |").unwrap();
@@ -94,15 +100,24 @@ impl TestInfo {
         let precision = config.precision.unwrap();
 
         let mut result = Vec::new();
-        result.push(NotionTextChunk::new(&format!("| {} | {: >12} | ", self.test_name, self.time), "default"));
+        result.push(NotionTextChunk::new(
+            &format!("| {} | {: >12} | ", self.test_name, self.time),
+            "default",
+        ));
 
         match self.prev_score {
-            Some(score) => result.push(NotionTextChunk::new(&format!("{: >12.prec$}", score, prec = precision), "default")),
+            Some(score) => result.push(NotionTextChunk::new(
+                &format!("{: >12.prec$}", score, prec = precision),
+                "default",
+            )),
             None => result.push(NotionTextChunk::new(&format!("{: >12}", ""), "default")),
         };
         result.push(NotionTextChunk::new(" | ", "default"));
         match self.new_score {
-            Some(score) => result.push(NotionTextChunk::new(&format!("{: >12.prec$}", score, prec = precision), "default")),
+            Some(score) => result.push(NotionTextChunk::new(
+                &format!("{: >12.prec$}", score, prec = precision),
+                "default",
+            )),
             None => {
                 if self.state == TestState::Skipped {
                     result.push(NotionTextChunk::new(&format!("{:->12}", ""), "default"));
@@ -116,23 +131,33 @@ impl TestInfo {
         result.push(NotionTextChunk::new(" | ", "default"));
         let mut delta = String::new();
         if self.prev_score.is_some() && self.new_score.is_some() {
-            delta = format!("{:.prec$}", self.new_score.unwrap() - self.prev_score.unwrap(), prec = precision);
+            delta = format!(
+                "{:.prec$}",
+                self.new_score.unwrap() - self.prev_score.unwrap(),
+                prec = precision
+            );
             if delta.as_bytes()[0] != b'-' && self.result != TestResult::Same {
                 delta = "+".to_string() + &delta;
             }
         }
-        result.push(NotionTextChunk::new(&format!("{: >12}", delta), match self.result {
-            TestResult::Better => "green",
-            TestResult::Worse => "red",
-            TestResult::Same => "default",
-        }));
+        result.push(NotionTextChunk::new(
+            &format!("{: >12}", delta),
+            match self.result {
+                TestResult::Better => "green",
+                TestResult::Worse => "red",
+                TestResult::Same => "default",
+            },
+        ));
 
         result.push(NotionTextChunk::new(" | ", "default"));
         if test_log.content.is_some() {
             result.push(NotionTextChunk {
                 text: format!("log-{}", test_log.last_update),
                 color: "default".to_string(),
-                link: Some(format!("/{}", test_log.page_id.chars().filter(|c| *c != '-').collect::<String>())),
+                link: Some(format!(
+                    "/{}",
+                    test_log.page_id.chars().filter(|c| *c != '-').collect::<String>()
+                )),
             });
         } else {
             result.push(NotionTextChunk::new(&format!("{: >12}", ""), "default"));

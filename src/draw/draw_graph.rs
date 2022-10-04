@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
 use std::io::{self};
 
@@ -6,14 +6,13 @@ use indoc::indoc;
 
 use std::rc::Rc;
 
+use druid::kurbo::{BezPath, Circle, Line, RoundedRect, Vec2};
+use druid::piet::{FontFamily, Text, TextLayout, TextLayoutBuilder};
 use druid::widget::prelude::*;
-use druid::widget::{Flex, Widget, MainAxisAlignment, CrossAxisAlignment, Checkbox, Button};
+use druid::widget::{Button, Checkbox, CrossAxisAlignment, Flex, MainAxisAlignment, Widget};
 use druid::{
-    Size, AppLauncher, WindowDesc, Data, Lens, Color, Rect, Point, WidgetExt, MouseButton,
-    Command, Target, Selector
+    AppLauncher, Color, Command, Data, Lens, MouseButton, Point, Rect, Selector, Size, Target, WidgetExt, WindowDesc,
 };
-use druid::kurbo::{Circle, Line, RoundedRect, BezPath, Vec2};
-use druid::piet::{FontFamily, Text, TextLayoutBuilder, TextLayout};
 
 const PADDING: f64 = 8.0;
 
@@ -65,7 +64,11 @@ impl DrawingWidget {
         let scaled_radius = RADIUS * self.scale;
 
         if data.vertex_info.is_empty() {
-            if pos.x < -scaled_radius || pos.y < -scaled_radius || pos.x > self.size.width + scaled_radius || pos.y > self.size.height + scaled_radius {
+            if pos.x < -scaled_radius
+                || pos.y < -scaled_radius
+                || pos.x > self.size.width + scaled_radius
+                || pos.y > self.size.height + scaled_radius
+            {
                 return;
             }
 
@@ -101,8 +104,11 @@ impl DrawingWidget {
 
             ctx.draw_text(&layout, text_pos);
         } else {
-            if pos.x < -self.sizes[v].width / 2.0 * self.scale                   || pos.y < -self.sizes[v].height / 2.0 * self.scale ||
-               pos.x >  self.size.width + self.sizes[v].width / 2.0 * self.scale || pos.y >  self.size.height + self.sizes[v].height / 2.0 * self.scale {
+            if pos.x < -self.sizes[v].width / 2.0 * self.scale
+                || pos.y < -self.sizes[v].height / 2.0 * self.scale
+                || pos.x > self.size.width + self.sizes[v].width / 2.0 * self.scale
+                || pos.y > self.size.height + self.sizes[v].height / 2.0 * self.scale
+            {
                 return;
             }
 
@@ -129,13 +135,24 @@ impl DrawingWidget {
 
             let text_size = layout.size();
 
-            let rect = RoundedRect::from_rect(Rect::from_center_size(pos,
-                        Size::new(self.sizes[v].width * self.scale, self.sizes[v].height * self.scale)),
-                        RECT_RADIUS * self.scale);
+            let rect = RoundedRect::from_rect(
+                Rect::from_center_size(
+                    pos,
+                    Size::new(self.sizes[v].width * self.scale, self.sizes[v].height * self.scale),
+                ),
+                RECT_RADIUS * self.scale,
+            );
             ctx.fill(rect, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8));
-            let rect = RoundedRect::from_rect(Rect::from_center_size(pos,
-                        Size::new((self.sizes[v].width - WIDTH) * self.scale, (self.sizes[v].height - WIDTH) * self.scale)),
-                        RECT_RADIUS * self.scale);
+            let rect = RoundedRect::from_rect(
+                Rect::from_center_size(
+                    pos,
+                    Size::new(
+                        (self.sizes[v].width - WIDTH) * self.scale,
+                        (self.sizes[v].height - WIDTH) * self.scale,
+                    ),
+                ),
+                RECT_RADIUS * self.scale,
+            );
             ctx.fill(rect, &BACKGROUND);
 
             let mut text_pos = pos;
@@ -164,12 +181,13 @@ impl DrawingWidget {
 
         text_size.width += text_size.height / 2.0;
 
-        let rect = RoundedRect::from_rect(Rect::from_center_size(pos,
-                    text_size),
-                    RECT_RADIUS * self.scale);
+        let rect = RoundedRect::from_rect(Rect::from_center_size(pos, text_size), RECT_RADIUS * self.scale);
         ctx.fill(rect, &BACKGROUND);
-        ctx.stroke(rect, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale / 2.0);
-
+        ctx.stroke(
+            rect,
+            &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8),
+            WIDTH * self.scale / 2.0,
+        );
 
         ctx.draw_text(&layout, text_pos);
     }
@@ -223,12 +241,14 @@ impl DrawingWidget {
                 .unwrap();
 
             let text_size = layout.size();
-            self.sizes[v] = Size::new((text_size.width + scaled_radius).max(scaled_radius * 2.0), scaled_radius * 2.0);
+            self.sizes[v] = Size::new(
+                (text_size.width + scaled_radius).max(scaled_radius * 2.0),
+                scaled_radius * 2.0,
+            );
             self.sizes[v].width /= self.scale;
             self.sizes[v].height /= self.scale;
         }
     }
-
 
     fn refresh(&mut self, ctx: &mut PaintCtx, data: &AppData) {
         let size: Size = ctx.size();
@@ -261,11 +281,11 @@ impl Widget<AppData> for DrawingWidget {
                     }
                     ctx.request_paint();
                 }
-            },
+            }
             Event::Wheel(e) => {
                 self.scale = self.scale * 0.01_f64.max(1.1_f64.powf(-e.wheel_delta.y / 25.0));
                 ctx.request_paint();
-            },
+            }
             Event::MouseDown(e) => {
                 self.last_mouse_pos = e.pos.clone();
                 self.moving_vertex = false;
@@ -275,35 +295,22 @@ impl Widget<AppData> for DrawingWidget {
                         self.vertex = i;
                     }
                 }
-            },
+            }
             Event::Command(_) => {
                 self.first_time = true;
                 ctx.request_paint();
-            },
+            }
             _ => (),
         }
     }
 
-    fn lifecycle(
-        &mut self,
-        _ctx: &mut LifeCycleCtx,
-        _event: &LifeCycle,
-        _data: &AppData,
-        _env: &Env,
-    ) {
-    }
+    fn lifecycle(&mut self, _ctx: &mut LifeCycleCtx, _event: &LifeCycle, _data: &AppData, _env: &Env) {}
 
     fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &AppData, _data: &AppData, _env: &Env) {
         ctx.request_paint();
     }
 
-    fn layout(
-        &mut self,
-        _layout_ctx: &mut LayoutCtx,
-        bc: &BoxConstraints,
-        _data: &AppData,
-        _env: &Env,
-    ) -> Size {
+    fn layout(&mut self, _layout_ctx: &mut LayoutCtx, bc: &BoxConstraints, _data: &AppData, _env: &Env) -> Size {
         bc.max()
     }
 
@@ -311,7 +318,7 @@ impl Widget<AppData> for DrawingWidget {
         let size: Size = ctx.size();
         self.size = size.clone();
 
-        ctx.fill(Rect::from_origin_size(Point{x: 0.0, y: 0.0}, size), &BACKGROUND);
+        ctx.fill(Rect::from_origin_size(Point { x: 0.0, y: 0.0 }, size), &BACKGROUND);
 
         if self.first_time {
             self.refresh(ctx, data);
@@ -343,19 +350,24 @@ impl Widget<AppData> for DrawingWidget {
 
                 let mut v1 = Point::new(center2.x - self.pos[i].x, center2.y - self.pos[i].y);
                 let ln1 = v1.distance(Point::new(0., 0.));
-                v1.x /= ln1; v1.y /= ln1;
+                v1.x /= ln1;
+                v1.y /= ln1;
                 let mut ab = Point::new(self.pos[i].x - self.pos[j].x, self.pos[i].y - self.pos[j].y);
                 let lab = ab.distance(Point::new(0., 0.));
-                ab.x /= lab; ab.y /= lab;
+                ab.x /= lab;
+                ab.y /= lab;
                 let lnx = (ab.x * v1.x + ab.y * v1.y).abs();
                 let lny = (1_f64 - lnx * lnx).sqrt();
                 let needln = a * 4. / 3. / lny;
-                v1.x *= needln; v1.y *= needln;
+                v1.x *= needln;
+                v1.y *= needln;
 
                 let mut v2 = Point::new(center2.x - self.pos[j].x, center2.y - self.pos[j].y);
                 let ln2 = v2.distance(Point::new(0., 0.));
-                v2.x /= ln2; v2.y /= ln2;
-                v2.x *= needln; v2.y *= needln;
+                v2.x /= ln2;
+                v2.y /= ln2;
+                v2.x *= needln;
+                v2.y *= needln;
 
                 v1 = Point::new(v1.x + self.pos[i].x, v1.y + self.pos[i].y);
                 v2 = Point::new(v2.x + self.pos[j].x, v2.y + self.pos[j].y);
@@ -363,13 +375,19 @@ impl Widget<AppData> for DrawingWidget {
                 let mut path = BezPath::new();
                 path.move_to(self.transform(self.pos[i]));
                 path.curve_to(self.transform(v1), self.transform(v2), self.transform(self.pos[j]));
-                ctx.stroke(path,
-                    &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale);
+                ctx.stroke(
+                    path,
+                    &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8),
+                    WIDTH * self.scale,
+                );
 
                 let p = vec![self.pos[i].to_vec2(), v1.to_vec2(), v2.to_vec2(), self.pos[j].to_vec2()];
 
                 let getp = |t: f64| {
-                    p[0] * (1. - t).powi(3) + p[1] * (1. - t).powi(2) * t * 3. + p[2] * 3. * t.powi(2) * (1. - t) + p[3] * t.powi(3)
+                    p[0] * (1. - t).powi(3)
+                        + p[1] * (1. - t).powi(2) * t * 3.
+                        + p[2] * 3. * t.powi(2) * (1. - t)
+                        + p[3] * t.powi(3)
                 };
 
                 {
@@ -386,18 +404,27 @@ impl Widget<AppData> for DrawingWidget {
                     arrow_pos = getp(r).to_point();
                 }
             } else {
-                ctx.stroke(Line::new(
-                    self.transform(Point::new(self.pos[i].x, self.pos[i].y)),
-                    self.transform(Point::new(self.pos[j].x, self.pos[j].y))),
-                    &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8), WIDTH * self.scale);
+                ctx.stroke(
+                    Line::new(
+                        self.transform(Point::new(self.pos[i].x, self.pos[i].y)),
+                        self.transform(Point::new(self.pos[j].x, self.pos[j].y)),
+                    ),
+                    &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8),
+                    WIDTH * self.scale,
+                );
                 label_pos = self.pos[i].midpoint(self.pos[j]);
                 let mut ab = Point::new(self.pos[i].x - self.pos[j].x, self.pos[i].y - self.pos[j].y);
                 let lab = ab.distance(Point::new(0., 0.));
-                ab.x /= lab; ab.y /= lab;
-                ab.x *= RADIUS; ab.y *= RADIUS;
+                ab.x /= lab;
+                ab.y /= lab;
+                ab.x *= RADIUS;
+                ab.y *= RADIUS;
 
                 let getp = |t: f64| {
-                    Vec2::new(self.pos[i].x + (self.pos[j].x - self.pos[i].x) * t, self.pos[i].y + (self.pos[j].y - self.pos[i].y) * t)
+                    Vec2::new(
+                        self.pos[i].x + (self.pos[j].x - self.pos[i].x) * t,
+                        self.pos[i].y + (self.pos[j].y - self.pos[i].y) * t,
+                    )
                 };
 
                 {
@@ -421,8 +448,12 @@ impl Widget<AppData> for DrawingWidget {
 
             if data.directed {
                 let ang = if data.draw_arcs {
-                    let a1 = Vec2::new(label_pos.x - arrow_pos.x, label_pos.y - arrow_pos.y).normalize().atan2();
-                    let a2 = Vec2::new(arrow_pos.x - self.pos[j].x, arrow_pos.y - self.pos[j].y).normalize().atan2();
+                    let a1 = Vec2::new(label_pos.x - arrow_pos.x, label_pos.y - arrow_pos.y)
+                        .normalize()
+                        .atan2();
+                    let a2 = Vec2::new(arrow_pos.x - self.pos[j].x, arrow_pos.y - self.pos[j].y)
+                        .normalize()
+                        .atan2();
                     let res1 = (a1 + a2) / 2.;
                     let mut res2 = (a1 + a2) / 2. + std::f64::consts::PI;
                     if res2 >= std::f64::consts::PI * 2. {
@@ -436,7 +467,9 @@ impl Widget<AppData> for DrawingWidget {
                         res2
                     }
                 } else {
-                    Vec2::new(arrow_pos.x - self.pos[j].x, arrow_pos.y - self.pos[j].y).normalize().atan2()
+                    Vec2::new(arrow_pos.x - self.pos[j].x, arrow_pos.y - self.pos[j].y)
+                        .normalize()
+                        .atan2()
                 };
 
                 let end1 = (arrow_pos.to_vec2() + Vec2::from_angle(ang + ARROW_ANGLE) * ARROW_LEN).to_point();
@@ -449,7 +482,11 @@ impl Widget<AppData> for DrawingWidget {
                 path.close_path();
 
                 ctx.fill(&path, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8));
-                ctx.stroke(&path, &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8),  WIDTH * self.scale);
+                ctx.stroke(
+                    &path,
+                    &Color::rgb8(0xff as u8, 0xff as u8, 0xff as u8),
+                    WIDTH * self.scale,
+                );
             }
         }
 
@@ -483,7 +520,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         return;
     }
 
-    let mut app_data = AppData{
+    let mut app_data = AppData {
         g: Rc::new(Vec::new()),
         vertex_info: Rc::new(Vec::new()),
         only_vertex_info: false,
@@ -523,7 +560,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut s = String::new();
     io::stdin().read_line(&mut s).unwrap();
     let mut ln = s.trim().split(" ");
-    let (n, m) : (usize, usize) = (ln.next().unwrap().parse().unwrap(), ln.next().unwrap().parse().unwrap());
+    let (n, m): (usize, usize) = (ln.next().unwrap().parse().unwrap(), ln.next().unwrap().parse().unwrap());
 
     if is_vertex_info {
         let mut vertex_info: Vec<String> = Vec::new();
@@ -555,7 +592,14 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         let mut v = iter.next().unwrap().parse::<usize>().unwrap();
         u -= 1;
         v -= 1;
-        edge_info.push(((u, v), if app_data.is_edge_info { iter.collect::<Vec<_>>().join(" ") } else { String::new() }));
+        edge_info.push((
+            (u, v),
+            if app_data.is_edge_info {
+                iter.collect::<Vec<_>>().join(" ")
+            } else {
+                String::new()
+            },
+        ));
         g[u].push(v);
     }
 
@@ -579,7 +623,7 @@ fn make_layout() -> impl Widget<AppData> {
 
     Flex::row()
         .with_flex_child(
-            DrawingWidget{
+            DrawingWidget {
                 scale: 100.0,
                 center: Point::new(0.0, 0.0),
                 last_mouse_pos: Point::new(0.0, 0.0),
@@ -589,8 +633,9 @@ fn make_layout() -> impl Widget<AppData> {
                 moving_vertex: false,
                 vertex: 0,
                 sizes: Vec::new(),
-            }.with_id(drawing_widget_id),
-            1.0
+            }
+            .with_id(drawing_widget_id),
+            1.0,
         )
         .with_spacer(PADDING)
         .with_child(
@@ -602,7 +647,11 @@ fn make_layout() -> impl Widget<AppData> {
                 .with_child(Checkbox::new("Directed").lens(AppData::directed))
                 .with_spacer(PADDING)
                 .with_child(Button::new("Refresh").on_click(move |ctx: &mut EventCtx, _data, _env| {
-                    ctx.submit_command(Command::new(Selector::new("refresh"), (), Target::Widget(drawing_widget_id)));
+                    ctx.submit_command(Command::new(
+                        Selector::new("refresh"),
+                        (),
+                        Target::Widget(drawing_widget_id),
+                    ));
                 }))
                 .cross_axis_alignment(CrossAxisAlignment::Start),
         )

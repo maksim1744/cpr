@@ -10,8 +10,8 @@ pub struct NotionConfig {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub tests: usize,
-    pub optimize: String,  // "min" or "max"
-    pub result_func: String,  // "sum" or "avg"
+    pub optimize: String,    // "min" or "max"
+    pub result_func: String, // "sum" or "avg"
     pub skip_tests: Option<Vec<usize>>,
     pub precision: Option<usize>,
 
@@ -20,14 +20,12 @@ pub struct Config {
     pub time_offset: Option<i64>,
 
     // cmds
-    pub main:     Option<Vec<String>>,
-    pub scorer:   Option<Vec<String>>,
+    pub main: Option<Vec<String>>,
+    pub scorer: Option<Vec<String>>,
     pub finalize: Option<Vec<String>>,
 
     pub notion: Option<NotionConfig>,
 }
-
-
 
 #[derive(Debug, Clone)]
 pub struct TestSuiteInfo {
@@ -37,15 +35,11 @@ pub struct TestSuiteInfo {
     pub finished: bool,
 }
 
-
-
 #[derive(Debug, Clone)]
 pub struct NotionBlock {
     pub block_id: String,
     pub page_id: String,
 }
-
-
 
 #[derive(Debug, Clone)]
 pub struct NotionTextChunk {
@@ -67,8 +61,11 @@ impl NotionTextChunk {
         // first merge consecutive chunks with same color
         let mut merged_chunks: Vec<NotionTextChunk> = Vec::new();
         for chunk in chunks.into_iter() {
-            if merged_chunks.is_empty() || merged_chunks.last().unwrap().color != chunk.color ||
-               merged_chunks.last().unwrap().link.is_some() || chunk.link.is_some() {
+            if merged_chunks.is_empty()
+                || merged_chunks.last().unwrap().color != chunk.color
+                || merged_chunks.last().unwrap().link.is_some()
+                || chunk.link.is_some()
+            {
                 merged_chunks.push(chunk);
             } else {
                 merged_chunks.last_mut().unwrap().text += &chunk.text;
@@ -100,7 +97,6 @@ impl NotionTextChunk {
             }
             json_content.push(data);
         }
-
 
         serde_json::json!({
             "code": {
