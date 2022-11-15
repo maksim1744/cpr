@@ -2465,4 +2465,14 @@ fn init_rust_directory() {
             }
         }
     }
+    if !std::path::Path::new("rustfmt.toml").exists() {
+        fs::File::create("rustfmt.toml")
+            .unwrap()
+            .write(
+                &fs::read_to_string(get_templates_path().join("rustfmt.toml"))
+                    .unwrap()
+                    .as_bytes(),
+            )
+            .unwrap();
+    }
 }

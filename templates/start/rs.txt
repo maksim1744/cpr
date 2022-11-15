@@ -4,8 +4,25 @@
 */
 
 use rlib_io::*;
+[[type:gstart]]use rlib_rand::*;
+[[type:start|tstart]]
+[[type:start|tstart]]fn solve(cin: &mut Reader, cout: &mut Writer, _test: usize) {
+[[type:start|tstart]]    make_output_macro!(cout);
+[[type:start|tstart]]
+[[type:start|tstart]]    ${0:}
+[[type:start|tstart]]}
 
 fn main() {
     make_io!(cin, cout);
-    ${0:}
+[[type:gstart]]    let mut rng = match std::env::args().nth(1).map(|s| s.parse::<u64>().ok()).flatten() {
+[[type:gstart]]        Some(seed) => Rng::from_seed(seed),
+[[type:gstart]]        None => Rng::from_time(),
+[[type:gstart]]    };
+[[type:gstart]]
+[[type:gstart]]    ${0:}
+[[type:tstart]]    let tests: usize = cin.read();
+[[type:tstart]]    for test in 1..=tests {
+[[type:tstart]]        solve(&mut cin, &mut cout, test);
+[[type:tstart]]    }
+[[type:start]]    solve(&mut cin, &mut cout, 1);
 }
