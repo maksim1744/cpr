@@ -229,7 +229,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     app_data.mt = Rc::new(mt);
 
-    let window = WindowDesc::new(make_layout)
+    let window = WindowDesc::new(make_layout())
         .window_size(Size {
             width: 800.0,
             height: 600.0,
