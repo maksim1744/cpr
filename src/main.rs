@@ -2433,7 +2433,10 @@ fn init_rust_directory() {
         let mut file = fs::File::create("Cargo.toml").unwrap();
         for line in lines.trim().split('\n') {
             if line.trim() == "[rlib]" {
-                for folder in [RUST_LIBS_PATH, &[RUST_LIBS_PATH, "/external"].concat()] {
+                for folder in [
+                    &[RUST_LIBS_PATH, "/rlib"].concat(),
+                    &[RUST_LIBS_PATH, "/external"].concat(),
+                ] {
                     let mut libs: Vec<(String, String)> = Vec::new();
                     for path in fs::read_dir(folder).unwrap() {
                         let path = path.unwrap().path();

@@ -7,7 +7,7 @@ use rlib_io::*;
 [[type:gstart]]use rlib_rand::*;
 [[type:start|tstart]]
 [[type:start|tstart]]fn solve(cin: &mut Reader, cout: &mut Writer, _test: usize) {
-[[type:start|tstart]]    make_output_macro!(cout);
+[[type:start|tstart]]    make_output_macro!(cin, cout);
 [[type:start|tstart]]
 [[type:start|tstart]]    ${0:}
 [[type:start|tstart]]}
