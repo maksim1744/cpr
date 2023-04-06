@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 indoc = "1.0"
-reqwest = { version = "0.11.12", features = ["blocking", "cookies", "json"] }
+reqwest = { version = "0.11.16", features = ["blocking", "cookies", "json"] }
 soup = "0.5.0"
 subprocess = "0.2.6"
 chrono = "0.4.19"
