@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use subprocess::{ExitStatus, Popen, PopenConfig, Redirection};
 
 use std::collections::{HashMap, HashSet};
@@ -52,7 +53,7 @@ const PRECOMPILED_PATH: &str = "C:/MyPath/precompiled/O2";
 #[cfg(target_os = "windows")]
 const SETTINGS_FILE: &str = "C:/Users/magor/AppData/Local/cp_rust/settings.json";
 
-const OPEN_FILE_WITH: &str = "subl.exe";
+const DEFAULT_OPEN_FILE_CMD: &str = "subl.exe [file]:[line]:[char]";
 const DEFAULT_FILE_NAME: &str = "main";
 const DEFAULT_FILE_EXTENSION: &str = "cpp";
 const OPEN_FILE_ON_CREATION: bool = true;
@@ -65,6 +66,28 @@ enum ProblemSource {
     AtCoder(String, String),
     CodinGamePuzzle(String),
     Cses(String),
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct Config {
+    #[serde(default)]
+    lang: Option<String>,
+    #[serde(default)]
+    open_file_cmd: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoginInfo {
+    login: String,
+    password: String,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct Settings {
+    #[serde(default)]
+    config: Config,
+    #[serde(default)]
+    auth: HashMap<String, LoginInfo>,
 }
 
 fn help() {
@@ -113,7 +136,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
                                     be increased by 1
                 --check             Run with \"check.exe\" instead of \"easy.exe\" to check
                                     output, if different answers are possible. In that case,
-                                    programs are executed in the order \"gen.exe\", 
+                                    programs are executed in the order \"gen.exe\",
                                     \"[filename].exe\", \"check.exe\". \"check.exe\" have to
                                     read input, then output of the program and return 0 if
                                     check is successful and not 0 otherwise. Merged input
@@ -296,7 +319,7 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
                                     be increased by 1
                 --check             Run with \"check.cpp\" instead of \"easy.cpp\" to check
                                     output, if different answers are possible. In that case,
-                                    programs are executed in the order \"gen\", 
+                                    programs are executed in the order \"gen\",
                                     \"[filename].exe\", \"check\". \"check.cpp\" have to
                                     read input, then output of the program and return 0 if
                                     check is successful and not 0 otherwise. Merged input
@@ -1340,17 +1363,19 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
     }
 
     if OPEN_FILE_ON_CREATION {
-        if OPEN_FILE_WITH == "subl" || OPEN_FILE_WITH == "subl.exe" {
-            std::process::Command::new(OPEN_FILE_WITH)
-                .arg(format!("{}:{}:{}", full_name, position.0, position.1))
-                .output()
-                .unwrap();
-        } else {
-            std::process::Command::new(OPEN_FILE_WITH)
-                .arg(format!("{}", full_name))
-                .output()
-                .unwrap();
+        let open_file_cmd = get_settings()
+            .config
+            .open_file_cmd
+            .unwrap_or_else(|| DEFAULT_OPEN_FILE_CMD.to_string())
+            .replace("[file]", full_name)
+            .replace("[line]", &position.0.to_string())
+            .replace("[char]", &position.1.to_string());
+        let parts = open_file_cmd.split_whitespace().collect::<Vec<_>>();
+        let mut command = std::process::Command::new(parts[0]);
+        for part in parts[1..].into_iter() {
+            command.arg(part);
         }
+        command.output().unwrap();
     }
 }
 
@@ -1943,19 +1968,12 @@ fn config(args: &Vec<String>, _params: &HashMap<String, String>) {
         return;
     }
 
-    let mut settings: Value = match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
-        Ok(x) => x,
-        Err(_) => "{}".to_string(),
-    }) {
-        Ok(x) => x,
-        Err(_) => {
-            eprintln!("Can't parse json from \"settings.json\"");
-            std::process::exit(1);
-        }
-    };
+    let mut settings: Settings = get_settings();
 
     if args[0] == "lang" {
-        settings["config"][args[0].clone()] = serde_json::Value::String(args[1].clone());
+        settings.config.lang = Some(args[1].clone());
+    } else if args[0] == "open_file_cmd" {
+        settings.config.open_file_cmd = Some(args[1].clone());
     } else {
         eprintln!("Unknown param_name [{}]", args[0]);
         std::process::exit(1);
@@ -2273,7 +2291,7 @@ fn extract_codeforces_csrf(html: &str) -> String {
 }
 
 fn get_login_password(source: &str) -> (String, String) {
-    let settings: Value = match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
+    let settings: Settings = match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
         Ok(x) => x,
         Err(_) => {
             eprintln!("Can't open \"settings.json\"");
@@ -2286,14 +2304,14 @@ fn get_login_password(source: &str) -> (String, String) {
             std::process::exit(1);
         }
     };
-    let login = match settings["auth"][source]["login"].as_str() {
+    let login = match settings.auth.get(source).map(|auth| &auth.login) {
         Some(x) => x,
         None => {
             eprintln!("Can't find {} login in \"settings.json\"", source);
             std::process::exit(1);
         }
     };
-    let password = match settings["auth"][source]["password"].as_str() {
+    let password = match settings.auth.get(source).map(|auth| &auth.password) {
         Some(x) => x,
         None => {
             eprintln!("Can't find {} password in \"settings.json\"", source);
@@ -2477,5 +2495,18 @@ fn init_rust_directory() {
                     .as_bytes(),
             )
             .unwrap();
+    }
+}
+
+fn get_settings() -> Settings {
+    match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
+        Ok(x) => x,
+        Err(_) => "{}".to_string(),
+    }) {
+        Ok(x) => x,
+        Err(_) => {
+            eprintln!("Can't parse json from \"settings.json\"");
+            std::process::exit(1);
+        }
     }
 }
