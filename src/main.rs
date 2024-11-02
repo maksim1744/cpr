@@ -74,6 +74,8 @@ struct Config {
     lang: Option<String>,
     #[serde(default)]
     open_file_cmd: Option<String>,
+    #[serde(default, rename = ".vscode")]
+    vscode: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -85,9 +87,21 @@ struct LoginInfo {
 #[derive(Default, Serialize, Deserialize)]
 struct Settings {
     #[serde(default)]
-    config: Config,
+    profile: String,
+    #[serde(default)]
+    config: HashMap<String, Config>,
     #[serde(default)]
     auth: HashMap<String, LoginInfo>,
+}
+
+impl Settings {
+    fn config(&self) -> &Config {
+        &self.config[&self.profile]
+    }
+
+    fn config_mut(&mut self) -> &mut Config {
+        self.config.get_mut(&self.profile).unwrap()
+    }
 }
 
 fn help() {
@@ -107,12 +121,14 @@ fn help() {
             multirun            Run tests created by \"cpr splittest\" using multiple threads
             parse               Parse samples from url (now only codeforces, atcoder,
                                 codechef (sometimes works), cses, codingame)
+            profile             Change profile
             stress              Run your solution on multiple generated tests to check it
             istress             Similar to stress, but combines all source files into one
             submit              Submits solution to OJ (now only codeforces)
             splittest           Split multitest into multiple files
             test                Run your solutions on given tests in files like \"in123\"
             time                Measures execution time of a program
+            workspace           Initializes workspace for a contest
     "};
     print!("{}", s);
 }
@@ -1364,9 +1380,11 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
 
     if OPEN_FILE_ON_CREATION {
         let open_file_cmd = get_settings()
-            .config
+            .config()
             .open_file_cmd
-            .unwrap_or_else(|| DEFAULT_OPEN_FILE_CMD.to_string())
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or_else(|| DEFAULT_OPEN_FILE_CMD)
             .replace("[file]", full_name)
             .replace("[line]", &position.0.to_string())
             .replace("[char]", &position.1.to_string());
@@ -1971,9 +1989,9 @@ fn config(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut settings: Settings = get_settings();
 
     if args[0] == "lang" {
-        settings.config.lang = Some(args[1].clone());
+        settings.config_mut().lang = Some(args[1].clone());
     } else if args[0] == "open_file_cmd" {
-        settings.config.open_file_cmd = Some(args[1].clone());
+        settings.config_mut().open_file_cmd = Some(args[1].clone());
     } else {
         eprintln!("Unknown param_name [{}]", args[0]);
         std::process::exit(1);
@@ -1981,6 +1999,65 @@ fn config(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     std::fs::create_dir_all(Path::new(SETTINGS_FILE).parent().unwrap()).unwrap();
     fs::write(SETTINGS_FILE, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+}
+
+fn profile(args: &Vec<String>, _params: &HashMap<String, String>) {
+    let mut settings: Settings = get_settings();
+
+    if args.len() != 2 {
+        let s = indoc! {"
+            Usage: cpr profile [profile_name]
+
+            Flags:
+                --help              Display this message
+        "};
+        println!("{}", s);
+        println!(
+            "Current profile: {}, available profiles: {:?}",
+            settings.profile,
+            settings.config.keys().collect::<Vec<_>>()
+        );
+        return;
+    }
+
+    let profile = &args[0];
+    if !settings.config.contains_key(profile) {
+        panic!("No such profile {}", profile);
+    }
+
+    settings.profile.clone_from(profile);
+
+    std::fs::create_dir_all(Path::new(SETTINGS_FILE).parent().unwrap()).unwrap();
+    fs::write(SETTINGS_FILE, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
+}
+
+fn workspace(_args: &Vec<String>, _params: &HashMap<String, String>) {
+    let settings: Settings = get_settings();
+    let config = settings.config();
+    let lang = config.lang.as_ref().unwrap();
+    if lang == "cpp" {
+        println!("Nothing to do for cpp");
+        return;
+    }
+    if lang != "rs" {
+        panic!("Don't know what to do for {}", lang);
+    }
+    let cargo_path = std::path::Path::new("Cargo.toml");
+    if cargo_path.exists() {
+        panic!("Cargo.toml already exists here");
+    }
+
+    let lines = fs::read_to_string(get_templates_path().join("Cargo_workspace.toml")).unwrap();
+    let mut file = fs::File::create(cargo_path).unwrap();
+    file.write_all(lines.as_bytes()).unwrap();
+
+    for (key, value) in config.vscode.iter() {
+        let _ = std::fs::create_dir_all(".vscode");
+        fs::File::create(format!(".vscode/{key}"))
+            .unwrap()
+            .write_all(serde_json::to_string_pretty(value).unwrap().as_bytes())
+            .unwrap();
+    }
 }
 
 // ************************************* main *************************************
@@ -2022,6 +2099,10 @@ fn main() {
         approx::approx(&args[1..].to_vec(), &params);
     } else if args[0] == "config" {
         config(&args[1..].to_vec(), &params);
+    } else if args[0] == "profile" {
+        profile(&args[1..].to_vec(), &params);
+    } else if args[0] == "workspace" {
+        workspace(&args[1..].to_vec(), &params);
     } else {
         eprintln!("Unknown option \"{}\"", args[0]);
         std::process::exit(1);
@@ -2322,21 +2403,12 @@ fn get_login_password(source: &str) -> (String, String) {
 }
 
 fn get_default_file_extension() -> String {
-    let settings: Value = match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
-        Ok(x) => x,
-        Err(_) => {
-            eprintln!("Can't open \"settings.json\"");
-            std::process::exit(1);
-        }
-    }) {
-        Ok(x) => x,
-        Err(_) => {
-            eprintln!("Can't parse json from \"settings.json\"");
-            std::process::exit(1);
-        }
-    };
-    settings["config"]["lang"]
-        .as_str()
+    let settings = get_settings();
+    settings
+        .config()
+        .lang
+        .as_ref()
+        .map(|s| s.as_str())
         .unwrap_or(DEFAULT_FILE_EXTENSION)
         .to_string()
 }
@@ -2449,8 +2521,22 @@ fn init_rust_directory() {
     if !std::path::Path::new("Cargo.toml").exists() {
         let lines = fs::read_to_string(get_templates_path().join("Cargo.toml")).unwrap();
         let mut file = fs::File::create("Cargo.toml").unwrap();
+        let current_dir = std::env::current_dir()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         for line in lines.trim().split('\n') {
-            if line.trim() == "[rlib]" {
+            if line.trim() == "[name]" {
+                let mut name = current_dir.clone();
+                if name.chars().next().unwrap().is_digit(10) {
+                    name = format!("p_{}", name);
+                }
+                let name = format!("name = \"{}\"\n", name);
+                file.write(name.as_bytes()).unwrap();
+            } else if line.trim() == "[rlib]" {
                 for folder in [
                     &[RUST_LIBS_PATH, "/rlib"].concat(),
                     &[RUST_LIBS_PATH, "/external"].concat(),
@@ -2485,6 +2571,33 @@ fn init_rust_directory() {
                 file.write(&[b'\n']).unwrap();
             }
         }
+        let workspace = std::env::current_dir().unwrap().parent().unwrap().join("Cargo.toml");
+        if workspace.exists() {
+            let lines = std::fs::read_to_string(&workspace).unwrap();
+            let mut result_lines: Vec<String> = Vec::new();
+            for line in lines.split('\n') {
+                if line.starts_with("members") {
+                    let mut members = line
+                        .split_once('[')
+                        .unwrap()
+                        .1
+                        .split_once(']')
+                        .unwrap()
+                        .0
+                        .split(',')
+                        .map(|t| t.trim())
+                        .filter(|t| !t.is_empty())
+                        .map(|t| t.to_string())
+                        .collect::<Vec<_>>();
+                    members.push(format!("\"{}\"", current_dir));
+                    result_lines.push(format!("members = [{}]", members.join(", ")));
+                } else {
+                    result_lines.push(line.to_string());
+                }
+            }
+            let mut file = fs::File::create(workspace).unwrap();
+            file.write_all(result_lines.join("\n").as_bytes()).unwrap();
+        }
     }
     if !std::path::Path::new("rustfmt.toml").exists() {
         fs::File::create("rustfmt.toml")
@@ -2499,11 +2612,16 @@ fn init_rust_directory() {
 }
 
 fn get_settings() -> Settings {
-    match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
+    match serde_json::from_str::<Settings>(&match fs::read_to_string(SETTINGS_FILE) {
         Ok(x) => x,
         Err(_) => "{}".to_string(),
     }) {
-        Ok(x) => x,
+        Ok(x) => {
+            if !x.config.contains_key(&x.profile) {
+                panic!("No config for profile {}", x.profile);
+            }
+            x
+        }
         Err(_) => {
             eprintln!("Can't parse json from \"settings.json\"");
             std::process::exit(1);

@@ -1,7 +1,6 @@
 [package]
 name = "cpr"
 version = "0.1.0"
-authors = ["Maksim Gorokhovskii <magor1744@gmail.com>"]
 edition = "2021"
 
 [dependencies]
