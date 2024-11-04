@@ -2004,7 +2004,7 @@ fn config(args: &Vec<String>, _params: &HashMap<String, String>) {
 fn profile(args: &Vec<String>, _params: &HashMap<String, String>) {
     let mut settings: Settings = get_settings();
 
-    if args.len() != 2 {
+    if args.len() != 1 {
         let s = indoc! {"
             Usage: cpr profile [profile_name]
 
