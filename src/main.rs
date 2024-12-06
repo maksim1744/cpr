@@ -1278,7 +1278,11 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
     }
     if extension == "rs" {
         init_rust_directory();
-        filename = format!("src/bin/{}", filename);
+        filename = format!(
+            "src/bin/{}_{}",
+            filename,
+            std::env::current_dir().unwrap().file_name().unwrap().to_str().unwrap()
+        );
     }
     let full_name = &[&filename, ".", &extension].concat();
     if Path::new(full_name).exists() {
