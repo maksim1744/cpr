@@ -4,13 +4,15 @@
 */
 
 use rlib_io::*;
+#[allow(unused_imports)]
+use rlib_show::*;
 [[type:gstart]]use rlib_rand::*;
-[[type:start|tstart]]
-[[type:start|tstart]]fn solve(cin: &mut Reader, cout: &mut Writer, _test: usize) {
-[[type:start|tstart]]    make_output_macro!(cin, cout);
-[[type:start|tstart]]
-[[type:start|tstart]]    ${0:}
-[[type:start|tstart]]}
+[[type:start|tstart|gcj]]
+[[type:start|tstart|gcj]]fn solve(cin: &mut Reader, cout: &mut Writer, _test: usize) {
+[[type:start|tstart|gcj]]    make_output_macro!(cin, cout);
+[[type:start|tstart|gcj]]
+[[type:start|tstart|gcj]]    ${0:}
+[[type:start|tstart|gcj]]}
 
 fn main() {
     make_io!(cin, cout);
@@ -20,9 +22,10 @@ fn main() {
 [[type:gstart]]    };
 [[type:gstart]]
 [[type:gstart]]    ${0:}
-[[type:tstart]]    let tests: usize = cin.read();
-[[type:tstart]]    for test in 1..=tests {
-[[type:tstart]]        solve(&mut cin, &mut cout, test);
-[[type:tstart]]    }
+[[type:tstart|gcj]]    let tests: usize = cin.read();
+[[type:tstart|gcj]]    for test in 1..=tests {
+[[type:gcj]]        out!(format!("Case #{}: ", test));
+[[type:tstart|gcj]]        solve(&mut cin, &mut cout, test);
+[[type:tstart|gcj]]    }
 [[type:start]]    solve(&mut cin, &mut cout, 1);
 }
