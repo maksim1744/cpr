@@ -72,7 +72,7 @@ With codefoces also works like this:
 .../Codeforces/.../1234A
 ```
 
-For parsing atcoder during live contest you have to enter you login and password in the `settings.json` file (read below)
+For parsing atcoder during live contest you have to enter your login and password in the `settings.json` file (read below)
 
 Note that there is a much better tool [Competitive Companion](https://github.com/jmerle/competitive-companion).
 

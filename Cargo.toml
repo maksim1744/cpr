@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-indoc = "1.0"
 reqwest = { version = "0.11.16", features = ["blocking", "cookies", "json"] }
 soup = "0.5.0"
 subprocess = "0.2.6"
@@ -15,5 +14,6 @@ rand = "0.7.3"
 termcolor = "1.1"
 threadpool = "1.8.1"
 crossterm = "0.22.1"
+clap = { version = "4.5.37", features = ["derive"] }
 
 druid = { git = "https://github.com/linebender/druid.git", rev = "a2b9fe9a969f3aab9da7aa358d809d58e95761b9" }

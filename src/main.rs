@@ -1,3 +1,6 @@
+use approx::ApproxArgs;
+use clap::Parser;
+use draw::DrawArgs;
 use serde::{Deserialize, Serialize};
 use subprocess::{ExitStatus, Popen, PopenConfig, Redirection};
 
@@ -12,13 +15,8 @@ use soup::prelude::*;
 
 use chrono::Local;
 
-use indoc::indoc;
-
 use serde_json::map::Map;
 use serde_json::Value;
-
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
@@ -104,139 +102,57 @@ impl Settings {
     }
 }
 
-fn help() {
-    let s = indoc! {"
-        Usage: cpr [option] [flags]
+#[derive(Parser)]
+struct StressTestArgs {
+    /// Main executable to run
+    filename: Option<String>,
 
-        Use \"cpr [option] --help\" to know more about specific option
+    /// Don't display anything, except the index of current test
+    #[arg(short, long, default_value_t)]
+    quiet: bool,
 
-        Options:
-            approx              Solve approximation problems when you need to submit only answer
-            draw                Draws something
-            help                Display this message
-            init                Inits directory with main file and parses samples
-            interact            Connects main.exe and interact.exe to test interactive problems
-            mk                  Make file, write template to it and open it
-            mktest              Make test case to test your solution
-            multirun            Run tests created by \"cpr splittest\" using multiple threads
-            parse               Parse samples from url (now only codeforces, atcoder,
-                                codechef (sometimes works), cses, codingame)
-            profile             Change profile
-            stress              Run your solution on multiple generated tests to check it
-            istress             Similar to stress, but combines all source files into one
-            submit              Submits solution to OJ (now only codeforces)
-            splittest           Split multitest into multiple files
-            test                Run your solutions on given tests in files like \"in123\"
-            time                Measures execution time of a program
-            workspace           Initializes workspace for a contest
-    "};
-    print!("{}", s);
+    /// Random seed for the first case. After each case it will be increased by 1
+    #[arg(short, long, default_value_t = 0)]
+    seed: i32,
+
+    /// Run with "check.exe" instead of "easy.exe" to check
+    /// output, if different answers are possible. In that case,
+    /// programs are executed in the order "gen.exe",
+    /// "[filename].exe", "check.exe". "check.exe" has to
+    /// read input, then output of the program and return 0 if
+    /// check is successful and not 0 otherwise. Merged input
+    /// and output will be written to "inout", where you can
+    /// see it.
+    #[arg(long, default_value_t)]
+    check: bool,
+
+    /// Command line for easy solution
+    #[arg(long)]
+    easy: Option<String>,
+
+    /// Command line for gen solution
+    #[arg(long)]
+    gen: Option<String>,
+
+    /// Command line for checker solution
+    #[arg(long)]
+    checkf: Option<String>,
+
+    /// Epsilon for comparison
+    #[arg(short, long)]
+    eps: Option<f64>,
+
+    /// Timeout in seconds
+    #[arg(short, long, default_value_t = DEFAULT_TIMEOUT)]
+    timeout: f64,
 }
 
-fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr stress [filename] [flags]
-
-            Runs \"gen.exe\" to generate input, then \"easy.exe\" to generate answer to that
-            input then \"[filename].exe\" (\"main.exe\" if not specified) to get output and
-            then compares output to the answer.
-            \"gen.exe\" should accept random seed in the first argument.
-            All programs have to read and write using stdin, stdout.
-            It uses files \"in\", \"out\", \"ans\" for corresponding info.
-
-            Flags:
-                --help              Display this message
-                -q, --quiet         Don't display anything, except number of current test
-                -s [seed]           Random seed for the first case. After each case it will
-                                    be increased by 1
-                --check             Run with \"check.exe\" instead of \"easy.exe\" to check
-                                    output, if different answers are possible. In that case,
-                                    programs are executed in the order \"gen.exe\",
-                                    \"[filename].exe\", \"check.exe\". \"check.exe\" have to
-                                    read input, then output of the program and return 0 if
-                                    check is successful and not 0 otherwise. Merged input
-                                    and output will be written to \"inout\", where you can
-                                    see it.
-                --easy [cmd]        Specify command line for easy solution
-                --gen [cmd]         Specify command line for generator
-                --checkf [cmd]      Specify command line for checker
-                --eps, -e [val]     Specify epsilon for comparison
-                -t, --timeout [t]   Specify timeout in seconds (may be float)
-        "};
-        print!("{}", s);
-        return;
-    }
-
-    let mut filename = String::from(DEFAULT_FILE_NAME);
-    let mut seed: i32 = 0;
-    let mut i = 0;
-    let mut quiet = false;
-    let mut check = false;
-    let mut easy_str = String::from("easy");
-    let mut gen_str = String::from("gen");
-    let mut check_str = String::from("check");
-    let mut timeout = DEFAULT_TIMEOUT;
-
-    let mut epsilon: Option<f64> = None;
-
-    while i < args.len() {
-        if args[i] == "-s" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify seed after \"-s\"");
-                std::process::exit(1);
-            }
-            seed = match args[i + 1].parse() {
-                Ok(x) => x,
-                Err(_) => {
-                    eprintln!("Can't parse integer seed after \"-s\"");
-                    std::process::exit(1)
-                }
-            };
-            i += 1;
-        } else if args[i] == "-q" || args[i] == "--quiet" {
-            quiet = true;
-        } else if args[i] == "--check" {
-            check = true;
-        } else if args[i] == "--easy" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify easy filename after \"--easy\"");
-                std::process::exit(1);
-            }
-            easy_str = args[i + 1].clone();
-            i += 1;
-        } else if args[i] == "--gen" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify gen filename after \"--gen\"");
-                std::process::exit(1);
-            }
-            gen_str = args[i + 1].clone();
-            i += 1;
-        } else if args[i] == "--checkf" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify check filename after \"--checkf\"");
-                std::process::exit(1);
-            }
-            check_str = args[i + 1].clone();
-            i += 1;
-        } else if args[i] == "-e" || args[i] == "--eps" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify check epsilon after \"{}\"", args[i]);
-                std::process::exit(1);
-            }
-            epsilon = Some(args[i + 1].parse().unwrap());
-            i += 1;
-        } else if args[i] == "-t" || args[i] == "--timeout" {
-            timeout = args[i + 1].parse().unwrap();
-            i += 1;
-        } else if args[i].starts_with("-") {
-            eprintln!("Unknown flag \"{}\"", args[i]);
-            std::process::exit(1);
-        } else {
-            filename = args[i].clone();
-        }
-        i += 1;
-    }
+fn stress_test(args: StressTestArgs, _params: &HashMap<String, String>) {
+    let mut seed: i32 = args.seed;
+    let filename = args.filename.unwrap_or(String::from(DEFAULT_FILE_NAME));
+    let easy_str = args.easy.unwrap_or(String::from("easy"));
+    let gen_str = args.gen.unwrap_or(String::from("gen"));
+    let check_str = args.checkf.unwrap_or(String::from("check"));
 
     let mut case = 1;
 
@@ -247,7 +163,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             &[&fix_unix_filename(&gen_str), &seed.to_string()],
             "",
             "in",
-            Some(timeout),
+            Some(args.timeout),
         );
         if !result.success() {
             println!("X  [seed = {}]", seed);
@@ -256,8 +172,8 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         print!(".");
         io::stdout().flush().unwrap();
 
-        if !check {
-            let result = run_and_wait(&[&easy_str], "in", "ans", Some(timeout));
+        if !args.check {
+            let result = run_and_wait(&[&easy_str], "in", "ans", Some(args.timeout));
             if !result.success() {
                 println!("X  [seed = {}]", seed);
                 break;
@@ -266,7 +182,7 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             io::stdout().flush().unwrap();
         }
 
-        let result = run_and_wait(&[&filename], "in", "out", Some(timeout));
+        let result = run_and_wait(&[&filename], "in", "out", Some(args.timeout));
         if !result.success() {
             println!("X  [seed = {}]", seed);
             break;
@@ -274,15 +190,15 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         print!(".");
         io::stdout().flush().unwrap();
 
-        if check {
+        if args.check {
             let inout = [fs::read_to_string("in").unwrap(), fs::read_to_string("out").unwrap()].concat();
             fs::File::create("inout").unwrap().write(inout.as_bytes()).unwrap();
 
-            let result = run_and_wait(&[&check_str], "inout", "ans", Some(timeout));
+            let result = run_and_wait(&[&check_str], "inout", "ans", Some(args.timeout));
             if !result.success() {
                 println!("X  [seed = {}]", seed);
 
-                if !quiet {
+                if !args.quiet {
                     println!("========== in  ==========");
                     println!("{}", read_lines_trim("in").join("\n"));
                     println!("========== out ==========");
@@ -297,9 +213,9 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
             io::stdout().flush().unwrap();
         }
 
-        if !check && !compare_output("out", "ans", epsilon) {
+        if !args.check && !compare_output("out", "ans", args.eps) {
             println!("   failed   [seed = {}]", seed);
-            if !quiet {
+            if !args.quiet {
                 println!("========== in  ==========");
                 println!("{}", read_lines_trim("in").join("\n"));
                 println!("========== ans ==========");
@@ -314,110 +230,61 @@ fn stress_test(args: &Vec<String>, _params: &HashMap<String, String>) {
         case += 1;
         print!("\r                                    \r");
     }
-    if !quiet {
+    if !args.quiet {
         print!("{}", fs::read_to_string("err").unwrap());
     }
 }
 
-fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr istress [filename] [flags]
+#[derive(Parser)]
+struct IStressTestArgs {
+    /// Main executable to run
+    filename: Option<String>,
 
-            Combines \"main.cpp\", \"easy.cpp\" and \"gen.cpp\" into one file to run
-            stress tests. All programs have to read and write using stdin, stdout
-            using cin and cout. Saves test into \"in\", \"out\", \"ans\".
+    /// Don't display anything, except the index of current test
+    #[arg(short, long, default_value_t)]
+    quiet: bool,
 
-            Flags:
-                --help              Display this message
-                -q, --quiet         Don't display anything, except number of current test
-                -s [seed]           Random seed for the first case. After each case it will
-                                    be increased by 1
-                --check             Run with \"check.cpp\" instead of \"easy.cpp\" to check
-                                    output, if different answers are possible. In that case,
-                                    programs are executed in the order \"gen\",
-                                    \"[filename].exe\", \"check\". \"check.cpp\" have to
-                                    read input, then output of the program and return 0 if
-                                    check is successful and not 0 otherwise. Merged input
-                                    and output will be written to \"inout\", where you can
-                                    see it.
-                --easy [file]       Specify filename for easy solution
-                --gen [file]        Specify filename for generator
-                --checkf [file]     Specify filename for checker
-                --eps, -e [val]     Specify epsilon for comparison
-        "};
-        print!("{}", s);
-        return;
-    }
+    /// Random seed for the first case. After each case it will be increased by 1
+    #[arg(short, long, default_value_t = 0)]
+    seed: i32,
 
-    let mut filename = String::from(DEFAULT_FILE_NAME);
-    let mut seed: i32 = 0;
-    let mut i = 0;
-    let mut quiet = false;
-    let mut check = false;
-    let mut easy_name = String::from("easy");
-    let mut gen_name = String::from("gen");
-    let mut check_name = String::from("check");
+    /// Run with "check.exe" instead of "easy.exe" to check
+    /// output, if different answers are possible. In that case,
+    /// programs are executed in the order "gen.exe",
+    /// "[filename].exe", "check.exe". "check.exe" has to
+    /// read input, then output of the program and return 0 if
+    /// check is successful and not 0 otherwise. Merged input
+    /// and output will be written to "inout", where you can
+    /// see it.
+    #[arg(long, default_value_t)]
+    check: bool,
 
-    let mut epsilon: Option<f64> = None;
+    /// Command line for easy solution
+    #[arg(long)]
+    easy: Option<String>,
 
-    while i < args.len() {
-        if args[i] == "-s" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify seed after \"-s\"");
-                std::process::exit(1);
-            }
-            seed = match args[i + 1].parse() {
-                Ok(x) => x,
-                Err(_) => {
-                    eprintln!("Can't parse integer seed after \"-s\"");
-                    std::process::exit(1)
-                }
-            };
-            i += 1;
-        } else if args[i] == "-q" || args[i] == "--quiet" {
-            quiet = true;
-        } else if args[i] == "--check" {
-            check = true;
-        } else if args[i] == "--easy" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify easy filename after \"--easy\"");
-                std::process::exit(1);
-            }
-            easy_name = args[i + 1].clone();
-            i += 1;
-        } else if args[i] == "--gen" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify gen filename after \"--gen\"");
-                std::process::exit(1);
-            }
-            gen_name = args[i + 1].clone();
-            i += 1;
-        } else if args[i] == "--checkf" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify check filename after \"--checkf\"");
-                std::process::exit(1);
-            }
-            check_name = args[i + 1].clone();
-            i += 1;
-        } else if args[i] == "-e" || args[i] == "--eps" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify check epsilon after \"{}\"", args[i]);
-                std::process::exit(1);
-            }
-            epsilon = Some(args[i + 1].parse().unwrap());
-            i += 1;
-        } else if args[i].starts_with("-") {
-            eprintln!("Unknown flag \"{}\"", args[i]);
-            std::process::exit(1);
-        } else {
-            filename = args[i].clone();
-        }
-        i += 1;
-    }
+    /// Command line for gen solution
+    #[arg(long)]
+    gen: Option<String>,
+
+    /// Command line for checker solution
+    #[arg(long)]
+    checkf: Option<String>,
+
+    /// Epsilon for comparison
+    #[arg(short, long)]
+    eps: Option<f64>,
+}
+
+fn stress_test_inline(args: IStressTestArgs, _params: &HashMap<String, String>) {
+    let seed: i32 = args.seed;
+    let filename = args.filename.unwrap_or(String::from(DEFAULT_FILE_NAME));
+    let easy_str = args.easy.unwrap_or(String::from("easy"));
+    let gen_str = args.gen.unwrap_or(String::from("gen"));
+    let check_str = args.checkf.unwrap_or(String::from("check"));
 
     let mut template_file = get_templates_path();
-    if check {
+    if args.check {
         template_file.push("stress_test_check_template.cpp");
     } else {
         template_file.push("stress_test_template.cpp");
@@ -433,14 +300,14 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
     ];
     for line in template.iter() {
         if line.starts_with("//->settings") {
-            if let Some(eps) = epsilon {
+            if let Some(eps) = args.eps {
                 result.push(["const double eps = ".to_string(), eps.to_string(), ";".to_string()].concat());
                 result.push("const bool use_eps = true;".to_string());
             } else {
                 result.push("const double eps = 0;".to_string());
                 result.push("const bool use_eps = false;".to_string());
             }
-            if quiet {
+            if args.quiet {
                 result.push("const bool quiet = true;".to_string());
             } else {
                 result.push("const bool quiet = false;".to_string());
@@ -450,9 +317,9 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
             let name = &line[4..];
             let file = match name {
                 "main" => filename.clone(),
-                "easy" => easy_name.clone(),
-                "gen" => gen_name.clone(),
-                "check" => check_name.clone(),
+                "easy" => easy_str.clone(),
+                "gen" => gen_str.clone(),
+                "check" => check_str.clone(),
                 _ => {
                     eprintln!("wrong template file");
                     std::process::exit(1);
@@ -501,115 +368,78 @@ fn stress_test_inline(args: &Vec<String>, _params: &HashMap<String, String>) {
     .wait();
 }
 
-fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr test [filename] [flags]
+#[derive(Parser)]
+struct TestArgs {
+    /// Main executable to run
+    filename: Option<String>,
 
-            Flags:
-                --help              Display this message
-                -q, --quiet         Don't display failed test, just the verdict
-                -i [numbers]        Specify what tests to run. Numbers can be a string,
-                                    such as \"1-5,8,9-20,7\" (no spaces, no quotes)
-                --check             Run checker on output insted of comparing with ans
-                --checkf            Specify command line for checker
-                -e, --eps [value]   Specify epsilon for comparison
-                -t, --timeout [t]   Specify timeout in seconds (may be float)
-                --near              Print output and answer side by side
-        "};
-        print!("{}", s);
-        return;
-    }
+    /// Don't display content of failed tests
+    #[arg(short, long, default_value_t)]
+    quiet: bool,
 
-    let mut filename = String::from(DEFAULT_FILE_NAME);
+    /// Which tests to run. Argument can be a string,
+    /// such as "1-5,8,9-20,7" (no spaces, no quotes)
+    #[arg(short, long)]
+    indices: Option<String>,
+
+    /// Run checker on output instead of comparing with ans
+    #[arg(long, default_value_t)]
+    check: bool,
+
+    /// Command line for checker solution
+    #[arg(long)]
+    checkf: Option<String>,
+
+    /// Epsilon for comparison
+    #[arg(short, long)]
+    eps: Option<f64>,
+
+    /// Timeout in seconds
+    #[arg(short, long, default_value_t = DEFAULT_TIMEOUT)]
+    timeout: f64,
+
+    /// Print output and answer side by side
+    #[arg(long)]
+    near: bool,
+}
+
+fn run_tests(args: TestArgs, _params: &HashMap<String, String>) {
+    let filename = args.filename.unwrap_or(String::from(DEFAULT_FILE_NAME));
+    let check_str = args.checkf.unwrap_or(String::from("check"));
 
     let mut tests = get_available_tests();
     tests.sort();
 
-    let mut i = 0;
-    let mut quiet = false;
-    let mut check = false;
-    let mut check_str = String::from("check");
-
-    let mut has_epsilon = false;
-    let mut epsilon: f64 = 0.0;
-
-    let mut timeout = DEFAULT_TIMEOUT;
-
-    let mut near = false;
-
-    while i < args.len() {
-        if args[i] == "-i" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify tests after \"-i\"");
-                std::process::exit(1);
-            }
-
-            let mut mask: HashSet<i32> = HashSet::new();
-
-            for token in args[i + 1].split(",") {
-                let token: Vec<_> = token.split("-").collect();
-                if token.len() == 1 {
-                    mask.insert(match token[0].parse() {
-                        Ok(x) => x,
-                        Err(_) => {
-                            eprintln!("Wrong mask format after \"-i\"");
-                            std::process::exit(1);
-                        }
-                    });
-                } else if token.len() == 2 {
-                    let l: i32 = match token[0].parse() {
-                        Ok(x) => x,
-                        Err(_) => {
-                            eprintln!("Wrong mask format after \"-i\"");
-                            std::process::exit(1);
-                        }
-                    };
-                    let r: i32 = match token[1].parse() {
-                        Ok(x) => x,
-                        Err(_) => {
-                            eprintln!("Wrong mask format after \"-i\"");
-                            std::process::exit(1);
-                        }
-                    };
-                    for i in l..r + 1 {
-                        mask.insert(i);
+    if let Some(indices) = args.indices {
+        let mut mask: HashSet<i32> = HashSet::new();
+        for token in indices.split(",") {
+            let token: Vec<_> = token.split("-").collect();
+            if token.len() == 1 {
+                mask.insert(match token[0].parse() {
+                    Ok(x) => x,
+                    Err(_) => {
+                        panic!("Wrong mask format after \"-i\"");
                     }
+                });
+            } else if token.len() == 2 {
+                let l: i32 = match token[0].parse() {
+                    Ok(x) => x,
+                    Err(_) => {
+                        panic!("Wrong mask format after \"-i\"");
+                    }
+                };
+                let r: i32 = match token[1].parse() {
+                    Ok(x) => x,
+                    Err(_) => {
+                        panic!("Wrong mask format after \"-i\"");
+                    }
+                };
+                for i in l..r + 1 {
+                    mask.insert(i);
                 }
             }
-            tests.retain(|x| mask.contains(x));
-            i += 1;
-        } else if args[i] == "-q" || args[i] == "--quiet" {
-            quiet = true;
-        } else if args[i] == "--check" {
-            check = true;
-        } else if args[i] == "--checkf" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify check filename after \"--check\"");
-                std::process::exit(1);
-            }
-            check_str = args[i + 1].clone();
-            i += 1;
-        } else if args[i] == "-e" || args[i] == "--eps" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify epsilon filename after \"{}\"", args[i]);
-                std::process::exit(1);
-            }
-            has_epsilon = true;
-            epsilon = args[i + 1].parse().unwrap();
-            i += 1;
-        } else if args[i] == "-t" || args[i] == "--timeout" {
-            timeout = args[i + 1].parse().unwrap();
-            i += 1;
-        } else if args[i] == "-t" || args[i] == "--near" {
-            near = true;
-        } else if args[i].starts_with("-") {
-            eprintln!("Unknown flag \"{}\"", args[i]);
-            std::process::exit(1);
-        } else {
-            filename = args[i].clone();
         }
-        i += 1;
+        tests.retain(|x| mask.contains(x));
     }
 
     for test in tests.iter() {
@@ -621,7 +451,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             &[&filename],
             &["in", &test.to_string()].concat(),
             &["out", &test.to_string()].concat(),
-            Some(timeout),
+            Some(args.timeout),
         );
         let duration = now.elapsed().as_millis();
         print!("{:>5} ms   ", duration);
@@ -632,7 +462,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             writeln!(&mut stdout, "failed with TLE").unwrap();
             stdout.set_color(&ColorSpec::new()).unwrap();
 
-            if !quiet {
+            if !args.quiet {
                 println!("========== in  ==========");
                 println!("{}", read_lines_trim(&["in", &test.to_string()].concat()).join("\n"));
             }
@@ -641,7 +471,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
             writeln!(&mut stdout, "failed with status {:?}", result).unwrap();
             stdout.set_color(&ColorSpec::new()).unwrap();
 
-            if !quiet {
+            if !args.quiet {
                 println!("========== in  ==========");
                 println!("{}", read_lines_trim(&["in", &test.to_string()].concat()).join("\n"));
                 println!("========== out ==========");
@@ -649,7 +479,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 println!("========== err ==========");
                 println!("{}", read_lines_trim("err").join("\n"));
             }
-        } else if check {
+        } else if args.check {
             let mut in_string = fs::read_to_string(&["in", &test.to_string()].concat()).unwrap();
             if in_string.len() != 0 && in_string.as_bytes()[in_string.len() - 1] != b'\n' {
                 in_string += "\n";
@@ -665,14 +495,14 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                 &[&check_str],
                 &["inout", &test.to_string()].concat(),
                 &["ans", &test.to_string()].concat(),
-                Some(timeout),
+                Some(args.timeout),
             );
             if !result.success() {
                 stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
                 writeln!(&mut stdout, "failed").unwrap();
                 stdout.set_color(&ColorSpec::new()).unwrap();
 
-                if !quiet {
+                if !args.quiet {
                     println!("========== in  ==========");
                     println!("{}", read_lines_trim(&["in", &test.to_string()].concat()).join("\n"));
                     println!("========== out ==========");
@@ -692,17 +522,17 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
         } else if !compare_output(
             &["out", &test.to_string()].concat(),
             &["ans", &test.to_string()].concat(),
-            if has_epsilon { Some(epsilon) } else { None },
+            args.eps,
         ) {
             stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
             writeln!(&mut stdout, "failed").unwrap();
             stdout.set_color(&ColorSpec::new()).unwrap();
 
-            if !quiet {
+            if !args.quiet {
                 println!("========== in  ==========");
                 println!("{}", read_lines_trim(&["in", &test.to_string()].concat()).join("\n"));
 
-                if near {
+                if args.near {
                     let out_lines = read_lines_trim(&["out", &test.to_string()].concat());
                     let ans_lines = read_lines_trim(&["ans", &test.to_string()].concat());
                     let mut width: usize = 0;
@@ -739,7 +569,7 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
                         }
                         println!("|");
                     }
-                } else if has_epsilon {
+                } else if args.eps.is_some() {
                     println!("========== out ==========");
                     println!("{}", read_lines_trim(&["out", &test.to_string()].concat()).join("\n"));
                     println!("========== ans ==========");
@@ -769,77 +599,36 @@ fn run_tests(args: &Vec<String>, _params: &HashMap<String, String>) {
     }
 }
 
-fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr interact [filename] [flags]
+#[derive(Parser)]
+struct InteractArgs {
+    /// Main executable to run
+    filename: Option<String>,
 
-            Flags:
-                --help              Display this message
-                -q, --quiet         Don't display anything, except number of current test
-                --interactf         Specify interactor filename (\"interact\" by default)
-                --debug             Run interactor and main once, printing each line
-                  --tab-size [val]  Number of spaces before printing \"judge:\". 20 by default
-        "};
-        print!("{}", s);
-        return;
-    }
+    /// Random seed for the first case. After each case it will be increased by 1
+    #[arg(short, long, default_value_t = 0)]
+    seed: i32,
 
-    let mut seed = 0;
-    let mut quiet = false;
-    let mut filename = String::from(DEFAULT_FILE_NAME);
-    let mut interact = String::from("interact");
-    let mut debug = false;
-    let mut tab_size = 20;
+    /// Don't display anything, except for the index of the current test
+    #[arg(short, long, default_value_t)]
+    quiet: bool,
 
-    let mut i = 0;
+    /// Interactor filename ("interact" by default)
+    #[arg(long)]
+    interactf: Option<String>,
 
-    while i < args.len() {
-        if args[i] == "-s" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify seed after \"-s\"");
-                std::process::exit(1);
-            }
-            seed = match args[i + 1].parse() {
-                Ok(x) => x,
-                Err(_) => {
-                    eprintln!("Can't parse integer seed after \"-s\"");
-                    std::process::exit(1)
-                }
-            };
-            i += 1;
-        } else if args[i] == "-q" || args[i] == "--quiet" {
-            quiet = true;
-        } else if args[i] == "--interactf" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify check filename after \"--interact\"");
-                std::process::exit(1);
-            }
-            interact = args[i + 1].clone();
-            i += 1;
-        } else if args[i] == "--debug" {
-            debug = true;
-        } else if args[i] == "--tab-size" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify tab size after \"--tab-size\"");
-                std::process::exit(1);
-            }
-            tab_size = match args[i + 1].parse() {
-                Ok(x) => x,
-                Err(_) => {
-                    eprintln!("Can't parse integer seed after \"--tab-size\"");
-                    std::process::exit(1)
-                }
-            };
-            i += 1;
-        } else if args[i].starts_with("-") {
-            eprintln!("Unknown flag \"{}\"", args[i]);
-            std::process::exit(1);
-        } else {
-            filename = args[i].clone();
-        }
-        i += 1;
-    }
+    /// Run interactor and main once, printing each line
+    #[arg(long)]
+    debug: bool,
+
+    /// Number of spaces before printing "judge:"
+    #[arg(long, default_value_t = 20)]
+    tab_size: usize,
+}
+
+fn interact(args: InteractArgs, _params: &HashMap<String, String>) {
+    let mut seed = args.seed;
+    let filename = args.filename.unwrap_or(String::from(DEFAULT_FILE_NAME));
+    let interact = args.interactf.unwrap_or(String::from("interact"));
 
     let mut filename_vec: Vec<String> = Vec::new();
     filename_vec.extend(filename.split_whitespace().map(|x| String::from(x)).collect::<Vec<_>>());
@@ -865,7 +654,7 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
         let (mut child_shell2, mut child2_in, rx_out2, rx_err2, tx_end21, tx_end22) =
             run_interactive(&[&interact_vec[..], &[seed.to_string()]].concat().join(" "));
 
-        if !debug {
+        if !args.debug {
             print!("\rCase #{}: [seed = {}] ", case, seed);
             io::stdout().flush().unwrap();
         }
@@ -903,30 +692,30 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
                 break;
             }
             if let Ok(line) = rx_err1.try_recv() {
-                if debug {
+                if args.debug {
                     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
                     writeln!(&mut stdout, "main: {}", line.trim()).unwrap();
                     stdout.set_color(&ColorSpec::new()).unwrap();
                 }
             }
             if let Ok(line) = rx_out1.try_recv() {
-                if debug {
+                if args.debug {
                     writeln!(&mut stdout, "main: {}", line.trim()).unwrap();
                 }
                 child2_in.write(line.as_bytes()).unwrap();
             }
             if let Ok(line) = rx_err2.try_recv() {
-                if debug {
+                if args.debug {
                     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
-                    writeln!(&mut stdout, "{:w$}judge: {}", "", line.trim(), w = tab_size).unwrap();
+                    writeln!(&mut stdout, "{:w$}judge: {}", "", line.trim(), w = args.tab_size).unwrap();
                     stdout.set_color(&ColorSpec::new()).unwrap();
-                } else if !quiet {
+                } else if !args.quiet {
                     writeln!(&mut stdout, "{}", line.trim()).unwrap();
                 }
             }
             if let Ok(line) = rx_out2.try_recv() {
-                if debug {
-                    writeln!(&mut stdout, "{:w$}judge: {}", "", line.trim(), w = tab_size).unwrap();
+                if args.debug {
+                    writeln!(&mut stdout, "{:w$}judge: {}", "", line.trim(), w = args.tab_size).unwrap();
                 }
                 child1_in.write(line.as_bytes()).unwrap();
             }
@@ -934,86 +723,58 @@ fn interact(args: &Vec<String>, _params: &HashMap<String, String>) {
 
         seed += 1;
         case += 1;
-        if debug {
+        if args.debug {
             break;
         }
     }
 }
 
-fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr parse [flags]
+#[derive(Parser, Default)]
+struct ParseArgs {
+    /// Ignore all settings and listen on port
+    #[arg(short, long)]
+    force: bool,
 
-            Parses samples using competitive companion (port 10046)
+    /// Parse contest. You also need to specify exactly one of --nA, --na, --n1
+    #[arg(long)]
+    contest: bool,
 
-            Flags:
-                --help              Display this message
-                -f                  Ignore all settings and listen on port
-                --contest           Parse contest
-                    -n              Specify the number of problems
-                     -na, -nA, -n1  Specify name of first problem
-                --echo              Print full responses
-        "};
-        print!("{}", s);
-        return;
-    }
+    /// Number of problems, with the first problem named "A"
+    #[arg(long = "nA")]
+    n_upper_a: Option<usize>,
 
-    let mut url: Option<String>;
-    if params.contains_key("url") {
-        url = Some(params.get("url").unwrap().clone());
+    /// Number of problems, with the first problem named "a"
+    #[arg(long = "na")]
+    n_lower_a: Option<usize>,
+
+    /// Number of problems, with the first problem named "1"
+    #[arg(long = "n1")]
+    n_one: Option<usize>,
+
+    /// Print full responses
+    #[arg(long)]
+    echo: bool,
+}
+
+fn parse(args: ParseArgs, params: &HashMap<String, String>) {
+    let mut url: Option<String> = if params.contains_key("url") {
+        Some(params.get("url").unwrap().clone())
     } else {
-        url = None
-    }
+        None
+    };
 
-    let mut parse_contest = false;
     let mut problem_names: Vec<String> = Vec::new();
-    let mut force = false;
-    let mut echo = false;
-
-    let mut i = 0;
-    while i < args.len() {
-        if args[i] == "-f" {
-            url = None;
-            force = true;
-            i += 1;
-        } else if args[i] == "--contest" {
-            parse_contest = true;
-            i += 1;
-        } else if args[i].starts_with("-n") {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify number of problems after \"-n\"");
-                std::process::exit(1);
+    if args.contest {
+        let mut fill_from = |first: char, count: usize| {
+            for i in 0..count {
+                problem_names.push(String::from((first as usize + i) as u8 as char));
             }
-            let mut first_problem = args[i][2..].to_string();
-            if first_problem.is_empty() {
-                first_problem = "A".to_string();
-            }
-            let problem_count = match args[i + 1].parse() {
-                Ok(x) => x,
-                Err(_) => {
-                    eprintln!("Can't parse integer seed after \"-n\"");
-                    std::process::exit(1)
-                }
-            };
-            for j in 0..problem_count {
-                if first_problem == "A" {
-                    problem_names.push(String::from_utf8(vec![b'A' + j]).unwrap());
-                } else if first_problem == "a" {
-                    problem_names.push(String::from_utf8(vec![b'a' + j]).unwrap());
-                } else if first_problem == "1" {
-                    problem_names.push(String::from_utf8((j + 1).to_string().as_bytes().to_vec()).unwrap());
-                }
-            }
-            i += 2;
-        } else if args[i] == "--echo" {
-            echo = true;
-        } else if args[i].starts_with("-") {
-            eprintln!("Unknown flag \"{}\"", args[i]);
-            std::process::exit(1);
-        } else {
-            problem_names.push(args[i].clone());
-            i += 1;
+        };
+        match (args.n_one, args.n_upper_a, args.n_lower_a) {
+            (Some(x), None, None) => fill_from('1', x),
+            (None, Some(x), None) => fill_from('A', x),
+            (None, None, Some(x)) => fill_from('a', x),
+            _ => panic!("Exactly one of --nA, --na, --n1 must be specified"),
         }
     }
 
@@ -1101,12 +862,12 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         println!("Parsed {} tests", tests.len());
     };
 
-    if parse_contest {
+    if args.contest {
         println!("Creating problems: {:?}", problem_names);
         url = None;
     }
 
-    if !parse_contest && !force {
+    if !args.contest && !args.force {
         let preparsed_samples = fs::read_to_string("../.preparsed_samples");
         if let Ok(preparsed_samples) = preparsed_samples {
             let preparsed: Value = match serde_json::from_str(&preparsed_samples) {
@@ -1158,7 +919,7 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
 
     loop {
         let mut problem_name: String = String::new();
-        if parse_contest {
+        if args.contest {
             if problem_iter == problem_names.len() {
                 break;
             } else {
@@ -1174,7 +935,7 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
         stream.read(&mut buffer).unwrap();
 
         let response = String::from_utf8_lossy(&buffer[..]);
-        if echo {
+        if args.echo {
             println!("{:?}", response);
         }
         let json_start = response.find("\r\n\r\n");
@@ -1205,7 +966,7 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
 
         println!("Got url \"{}\"", response_url);
 
-        if parse_contest {
+        if args.contest {
             if parsed_problems.contains(&response_url) {
                 println!("duplicate");
                 problem_iter -= 1;
@@ -1223,30 +984,32 @@ fn parse(args: &Vec<String>, params: &HashMap<String, String>) {
             return;
         }
     }
-
-    if parse_contest {}
 }
 
-fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr mk [filename] [flags]
+#[derive(Parser)]
+struct MakeFileArgs {
+    filename: Option<String>,
 
-            Creates file [filename] with template. Default extension is \".cpp\" if not
-            specified.
+    /// Use "tstart" template for multitest
+    #[arg(short, long)]
+    test: bool,
 
-            Flags:
-                --help              Display this message
-                -t, -gen, -gcj      Use template \"tstart\", \"gstart\" or \"gcj\"
-                                    respectively. \"start\" is chosen by default.
-        "};
-        print!("{}", s);
-        return;
-    }
-    let mut filename = String::from(DEFAULT_FILE_NAME);
+    /// Use "gstart" template for generator
+    #[arg(short, long)]
+    gen: bool,
+
+    /// Use "gcj" template for multitest with GCJ output format
+    #[arg(long)]
+    gcj: bool,
+}
+
+fn make_file(args: MakeFileArgs, params: &mut HashMap<String, String>) {
+    let mut filename = args.filename.unwrap_or(String::from(DEFAULT_FILE_NAME));
     let mut extension = get_default_file_extension();
-
-    let mut i = 0;
+    if let Some((name, ext)) = filename.split_once('.') {
+        extension = ext.to_string();
+        filename = name.to_string();
+    }
 
     enum TemplateType {
         Start,
@@ -1255,27 +1018,14 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
         Gstart,
     }
 
-    let mut template_type = TemplateType::Start;
+    let template_type = match (args.test, args.gen, args.gcj) {
+        (false, false, false) => TemplateType::Start,
+        (true, false, false) => TemplateType::Tstart,
+        (false, true, false) => TemplateType::Gstart,
+        (false, false, true) => TemplateType::Gcj,
+        _ => panic!("At most one of -t, --gen, --gcj must be specified"),
+    };
 
-    while i < args.len() {
-        if args[i] == "-t" {
-            template_type = TemplateType::Tstart;
-        } else if args[i] == "-gcj" {
-            template_type = TemplateType::Gcj;
-        } else if args[i] == "-gen" {
-            template_type = TemplateType::Gstart;
-        } else if args[i].starts_with("-") {
-            eprintln!("Unknow flag \"{}\"", args[i]);
-            std::process::exit(1);
-        } else {
-            let v: Vec<_> = args[i].split(".").collect();
-            filename = v[0].to_string();
-            if v.len() > 1 {
-                extension = v[1].to_string();
-            }
-        }
-        i += 1;
-    }
     if extension == "rs" {
         init_rust_directory();
         filename = format!(
@@ -1401,176 +1151,25 @@ fn make_file(args: &Vec<String>, params: &mut HashMap<String, String>) {
     }
 }
 
-fn init_task(args: &Vec<String>, params: &mut HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr init [flags]
-
-            Executes \"cpr mk [flags]\" and \"cpr parse\". See \"cpr mk --help\" for more info
-
-            Flags:
-                --help              Display this message
-        "};
-        print!("{}", s);
-        return;
-    }
-
+fn init_task(args: MakeFileArgs, params: &mut HashMap<String, String>) {
     make_file(args, params);
-    parse(&Vec::new(), params);
+    parse(ParseArgs::default(), params);
 }
 
-fn submit(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cp submit [filename]
+#[derive(Parser)]
+struct MakeTestArgs {
+    /// Explicity set index for the new test
+    index: Option<i32>,
 
-            Submits code from \"filename\" (\"main.cpp\" by default)
-
-            Flags:
-                --help              Display this message
-        "};
-        print!("{}", s);
-        return;
-    }
-    let mut filename = "main.cpp";
-    if !args.is_empty() {
-        filename = &args[0][..];
-    }
-
-    let code = &match fs::read_to_string(filename) {
-        Ok(x) => x,
-        Err(_) => {
-            eprintln!("File \"{}\" not found", filename);
-            std::process::exit(1)
-        }
-    };
-
-    let extension = filename.split(".").collect::<Vec<_>>()[1];
-
-    if let ProblemSource::Codeforces(contest, problem) = get_problem_source() {
-        let (login, password) = get_login_password("codeforces");
-
-        let language_code = match extension {
-            "cpp" => 61,
-            "rs" => 49,
-            "py" => 41,
-            _ => {
-                eprintln!("I don't know this extension");
-                std::process::exit(1);
-            }
-        };
-
-        let client = reqwest::blocking::Client::builder().cookie_store(true)
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36").build().unwrap();
-        let response = client
-            .get("https://codeforces.com/enter")
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-
-        let ftaa = &thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(18)
-            .collect::<String>()
-            .to_lowercase();
-        let bfaa = "58b9b2061cf94495c1ff57f24750dcf5";
-
-        let form = [
-            ("csrf_token", &extract_codeforces_csrf(&response)[..]),
-            ("action", "enter"),
-            ("ftaa", ftaa),
-            ("bfaa", bfaa),
-            ("handleOrEmail", &login),
-            ("password", &password),
-            ("_tta", "111"),
-        ];
-
-        let post = client.post("https://codeforces.com/enter").form(&form);
-
-        let response = post.send().unwrap().text().unwrap();
-        if response.matches("error for__password").count() != 0 {
-            eprintln!("Login failed\n");
-            std::process::exit(1);
-        }
-
-        let response = client
-            .get(&format!("https://codeforces.com/contest/{}/submit", contest))
-            .send()
-            .unwrap()
-            .text()
-            .unwrap();
-        let csrf = extract_codeforces_csrf(&response);
-
-        let form = [
-            ("csrf_token", &csrf[..]),
-            ("ftaa", ftaa),
-            ("bfaa", bfaa),
-            ("action", "submitSolutionFormSubmitted"),
-            ("submittedProblemIndex", &problem),
-            ("source", code),
-            ("_tta", "880"),
-            ("tabSize", "4"),
-            ("sourceFile", ""),
-            ("programTypeId", &language_code.to_string()),
-        ];
-
-        client
-            .post(&format!(
-                "https://codeforces.com/contest/{}/submit?csrf_token={}",
-                contest, csrf
-            ))
-            .form(&form)
-            .send()
-            .unwrap();
-    } else {
-        eprintln!("Can submit only on codeforces");
-        std::process::exit(1);
-    }
+    /// Copy "in", "ans" to the new test instead of readin from stdin
+    #[arg(short = '0')]
+    from_zero: bool,
 }
 
-fn make_test(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr mktest [index] [flags]
+fn make_test(args: MakeTestArgs, _params: &HashMap<String, String>) {
+    let index = args.index.unwrap_or(first_available_test());
 
-            Creates test from input. Split input and answer with ` (on the new line),
-            answer can be empty. Input and answer will be written to \"in[index]\" and
-            \"ans[index]\". If index is not specified, it will be chosen as the least
-            number such that \"in[index]\" does not exist.
-
-            Flags:
-                --help              Display this message
-                -0                  Copy \"in\", \"ans\" to the new test instead of reading
-                                    from stdin
-        "};
-        print!("{}", s);
-        return;
-    }
-
-    let mut index = first_available_test();
-    let mut from_zero = false;
-    let mut i = 0;
-
-    while i < args.len() {
-        if args[i] == "-0" {
-            from_zero = true;
-        } else if args[i].starts_with("-") {
-            eprintln!("Unknow flag \"{}\"", args[i]);
-            std::process::exit(1);
-        } else {
-            index = match args[0].parse() {
-                Ok(x) => x,
-                Err(_) => {
-                    eprintln!("Can't parse integer from \"{}\"", args[0]);
-                    std::process::exit(1);
-                }
-            };
-        }
-        i += 1;
-    }
-
-    if from_zero {
+    if args.from_zero {
         fs::File::create(&["in", &index.to_string()].concat())
             .unwrap()
             .write(fs::read_to_string("in").unwrap().as_bytes())
@@ -1623,101 +1222,17 @@ fn make_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     }
 }
 
-fn measure_time(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr time [command_line]
-
-            Executes [command_line] and measures execution time
-
-            Flags:
-                --help              Display this message
-        "};
-        print!("{}", s);
-        return;
-    }
-
-    if args.is_empty() {
-        eprintln!("Specify args");
-        std::process::exit(1);
-    }
-
-    let mut filename_vec: Vec<String> = Vec::new();
-    for item in args.iter() {
-        filename_vec.extend(item.split_whitespace().map(|x| String::from(x)).collect::<Vec<_>>());
-    }
-
-    fix_unix_filename_vec(&mut filename_vec);
-
-    let now = Instant::now();
-    let mut p = match Popen::create(&filename_vec[..], PopenConfig { ..Default::default() }) {
-        Ok(x) => x,
-        Err(_) => {
-            eprintln!("Error when starting process {:?}", filename_vec);
-            std::process::exit(1)
-        }
-    };
-
-    p.wait().unwrap();
-    let duration = now.elapsed().as_secs_f32();
-
-    let result = p.poll().unwrap();
-    if !result.success() {
-        let mut stderr = StandardStream::stderr(ColorChoice::Always);
-        stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red))).unwrap();
-        writeln!(&mut stderr, "failed with status {:?}", result).unwrap();
-        stderr.set_color(&ColorSpec::new()).unwrap();
-    }
-
-    eprintln!("time: {:.3}", duration);
+#[derive(Parser)]
+struct SplitTestArgs {
+    filename: String,
+    input: String,
 }
 
-fn split_test(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr splittest [filename] [input]
+fn split_test(args: SplitTestArgs, _params: &HashMap<String, String>) {
+    let filename = args.filename;
+    let input = args.input;
 
-            Splits multitest from [input] into single tests and puts them in folder \"tests\".
-            Needs C++ solution [filename] which has \"/* input-end */\" after reading input
-            for each test.
-
-            Flags:
-                --help              Display this message
-        "};
-        print!("{}", s);
-        return;
-    }
-
-    let mut filename = String::from(DEFAULT_FILE_NAME);
-    let mut input = String::new();
-
-    let mut i = 0;
-    let mut j = 0;
-
-    while i < args.len() {
-        if args[i].starts_with("-") {
-            eprintln!("Unknown flag \"{}\"", args[i]);
-            std::process::exit(1);
-        } else {
-            if j == 0 {
-                filename = args[i].clone();
-            } else if j == 1 {
-                input = args[i].clone();
-            } else {
-                eprintln!("Too many args");
-                std::process::exit(1);
-            }
-            j += 1;
-        }
-        i += 1;
-    }
-
-    if j != 2 {
-        eprintln!("Need two arguments");
-        std::process::exit(1);
-    }
-
-    filename = [filename, String::from("."), get_default_file_extension()].concat();
+    let filename = [filename, String::from("."), get_default_file_extension()].concat();
 
     let mut new_main: Vec<String> = Vec::new();
     let file = fs::read_to_string(filename).unwrap().trim().to_string();
@@ -1809,49 +1324,22 @@ fn split_test(args: &Vec<String>, _params: &HashMap<String, String>) {
     println!("\rCreated {} tests", split_positions.len() - 2);
 }
 
-fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr multirun [filename]
+#[derive(Parser)]
+struct MultirunArgs {
+    /// Main executable to run
+    filename: Option<String>,
 
-            Flags:
-                --help              Display this message
-                -t [num]            Number of threads
-                -o [file]           Output filename
-        "};
-        print!("{}", s);
-        return;
-    }
+    /// Number of threads
+    #[arg(short, long, default_value_t = 8)]
+    threads: usize,
 
-    let mut filename = String::from(DEFAULT_FILE_NAME);
-    let mut threads = 8;
-    let mut output: Option<String> = None;
+    /// Output filename, can be used to write concatenated *.out results
+    #[arg(short, long)]
+    output: Option<String>,
+}
 
-    let mut i = 0;
-
-    while i < args.len() {
-        if args[i] == "-t" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify number of threads after \"-t\"");
-                std::process::exit(1);
-            }
-            threads = args[i + 1].parse().unwrap();
-            i += 1;
-        } else if args[i] == "-o" {
-            if i + 1 == args.len() {
-                eprintln!("You need to specify output filename after \"-o\"");
-                std::process::exit(1);
-            }
-            output = Some(args[i + 1].clone());
-            i += 1;
-        } else if args[i].starts_with("-") {
-            eprintln!("Unknown flag \"{}\"", args[i]);
-            std::process::exit(1);
-        } else {
-            filename = args[i].clone();
-        }
-        i += 1;
-    }
+fn multirun(args: MultirunArgs, _params: &HashMap<String, String>) {
+    let mut filename = args.filename.unwrap_or(String::from(DEFAULT_FILE_NAME));
 
     filename = [filename, String::from("."), get_default_file_extension()].concat();
 
@@ -1918,7 +1406,7 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let failed_tests = Arc::new(Mutex::new(0));
 
-    let pool = ThreadPool::new(threads);
+    let pool = ThreadPool::new(args.threads);
 
     for input in tests.iter() {
         let input = input.clone();
@@ -1966,7 +1454,7 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
         stdout.set_color(&ColorSpec::new()).unwrap();
     }
 
-    if let Some(output) = output {
+    if let Some(output) = args.output {
         let mut tests = tests;
         tests.sort();
         let mut res = String::new();
@@ -1978,26 +1466,21 @@ fn multirun(args: &Vec<String>, _params: &HashMap<String, String>) {
     }
 }
 
-fn config(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if args.len() != 2 {
-        let s = indoc! {"
-            Usage: cpr config [param_name] [param_value]
+#[derive(Parser)]
+struct ConfigArgs {
+    name: String,
+    value: String,
+}
 
-            Flags:
-                --help              Display this message
-        "};
-        print!("{}", s);
-        return;
-    }
-
+fn config(args: ConfigArgs, _params: &HashMap<String, String>) {
     let mut settings: Settings = get_settings();
 
-    if args[0] == "lang" {
-        settings.config_mut().lang = Some(args[1].clone());
-    } else if args[0] == "open_file_cmd" {
-        settings.config_mut().open_file_cmd = Some(args[1].clone());
+    if &args.name == "lang" {
+        settings.config_mut().lang = Some(args.value);
+    } else if &args.name == "open_file_cmd" {
+        settings.config_mut().open_file_cmd = Some(args.value);
     } else {
-        eprintln!("Unknown param_name [{}]", args[0]);
+        eprintln!("Unknown param_name [{}]", &args.name);
         std::process::exit(1);
     }
 
@@ -2005,37 +1488,32 @@ fn config(args: &Vec<String>, _params: &HashMap<String, String>) {
     fs::write(SETTINGS_FILE, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
 }
 
-fn profile(args: &Vec<String>, _params: &HashMap<String, String>) {
+#[derive(Parser)]
+struct ProfileArgs {
+    profile: String,
+}
+
+fn profile(args: ProfileArgs, _params: &HashMap<String, String>) {
     let mut settings: Settings = get_settings();
-
-    if args.len() != 1 {
-        let s = indoc! {"
-            Usage: cpr profile [profile_name]
-
-            Flags:
-                --help              Display this message
-        "};
-        println!("{}", s);
-        println!(
-            "Current profile: {}, available profiles: {:?}",
-            settings.profile,
+    let profile = args.profile;
+    if !settings.config.contains_key(&profile) {
+        panic!(
+            "No such profile {}, available: {:?}",
+            profile,
             settings.config.keys().collect::<Vec<_>>()
         );
-        return;
     }
 
-    let profile = &args[0];
-    if !settings.config.contains_key(profile) {
-        panic!("No such profile {}", profile);
-    }
-
-    settings.profile.clone_from(profile);
+    settings.profile = profile;
 
     std::fs::create_dir_all(Path::new(SETTINGS_FILE).parent().unwrap()).unwrap();
     fs::write(SETTINGS_FILE, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
 }
 
-fn workspace(_args: &Vec<String>, _params: &HashMap<String, String>) {
+#[derive(Parser)]
+struct WorkspaceArgs {}
+
+fn workspace(_args: WorkspaceArgs, _params: &HashMap<String, String>) {
     let settings: Settings = get_settings();
     let config = settings.config();
     let lang = config.lang.as_ref().unwrap();
@@ -2066,51 +1544,109 @@ fn workspace(_args: &Vec<String>, _params: &HashMap<String, String>) {
 
 // ************************************* main *************************************
 
+#[derive(Parser)]
+enum Args {
+    /// Run stress test
+    ///
+    /// Runs "gen.exe" to generate input, then "easy.exe" to generate answer to that
+    /// input then "[filename].exe" ("main.exe" if not specified) to get output and
+    /// then compares output to the answer.
+    /// "gen.exe" should accept random seed in the first argument.
+    /// All programs have to read and write using stdin, stdout.
+    /// It uses files "in", "out", "ans" for corresponding info.
+    Stress(StressTestArgs),
+
+    /// Run stress test, but compile everything into one file
+    ///
+    /// Combines "main.cpp", "easy.cpp" and "gen.cpp" into one file to run
+    /// stress tests. All programs have to read and write using stdin, stdout
+    /// using cin and cout. Saves test into "in", "out", "ans".
+    #[command(name = "istress")]
+    IStress(IStressTestArgs),
+
+    /// Run solution on the predefined set of tests.
+    ///
+    /// Each test consists of input in the file "in[index]" and correct output in "ans[index]"
+    Test(TestArgs),
+
+    /// Stress test for interactive problems
+    Interact(InteractArgs),
+
+    /// Parses samples using competitive companion (port 10046)
+    Parse(ParseArgs),
+
+    /// Creates file with template
+    ///
+    /// Default filename is "main"
+    #[command(name = "mk")]
+    MakeFile(MakeFileArgs),
+
+    /// Executes "cpr mk [flags]" and "cpr parse". See "cpr mk --help" for more info
+    #[command(about = "cpr mk + cpr parse")]
+    Init(MakeFileArgs),
+
+    /// Make new test
+    ///
+    /// Creates test from input. Split input and answer with ` (on the new line),
+    /// answer can be empty. Input and answer will be written to "in[index]" and
+    /// "ans[index]". If index is not specified, it will be chosen as the least
+    /// number such that "in[index]" does not exist.
+    #[command(name = "mktest")]
+    MakeTest(MakeTestArgs),
+
+    /// Draws
+    ///
+    /// Use "cpr draw [type] --help" for more info.
+    Draw(DrawArgs),
+
+    /// Split a file with multiple testcases into separate files
+    ///
+    /// Splits multitest from [input] into single tests and puts them in folder "tests".
+    /// Needs C++ solution [filename] which has "/* input-end */" after reading input
+    /// for each test.
+    #[command(name = "splittest")]
+    SplitTest(SplitTestArgs),
+
+    /// Runs the solution on tests using multiple threads. First run "splittest"
+    Multirun(MultirunArgs),
+
+    /// Run solution once on every input file and update better answers overall
+    ///
+    /// Calls "main [num]" for each test, then with "scorer [file_in] [file_ans]"
+    /// compares current output from *.out and best answer from *.ans and leaves the
+    /// best one. In the end calls "finalize".
+    Approx(ApproxArgs),
+
+    /// Update config value
+    Config(ConfigArgs),
+
+    /// Change language profile
+    Profile(ProfileArgs),
+
+    /// Setup workspace
+    Workspace(WorkspaceArgs),
+}
+
 fn main() {
-    let args: Vec<String> = env::args().collect::<Vec<String>>()[1..].to_vec();
-
+    let args = Args::parse();
     let mut params = get_params();
-
-    if args.len() == 0 || args[0] == "help" {
-        help();
-    } else if args[0] == "stress" {
-        stress_test(&args[1..].to_vec(), &params);
-    } else if args[0] == "istress" {
-        stress_test_inline(&args[1..].to_vec(), &params);
-    } else if args[0] == "test" {
-        run_tests(&args[1..].to_vec(), &params);
-    } else if args[0] == "interact" {
-        interact(&args[1..].to_vec(), &params);
-    } else if args[0] == "parse" {
-        parse(&args[1..].to_vec(), &params);
-    } else if args[0] == "mk" {
-        make_file(&args[1..].to_vec(), &mut params);
-    } else if args[0] == "init" {
-        init_task(&args[1..].to_vec(), &mut params);
-    } else if args[0] == "submit" {
-        submit(&args[1..].to_vec(), &params);
-    } else if args[0] == "mktest" {
-        make_test(&args[1..].to_vec(), &params);
-    } else if args[0] == "draw" {
-        draw::draw(&args[1..].to_vec(), &params);
-    } else if args[0] == "time" {
-        measure_time(&args[1..].to_vec(), &params);
-    } else if args[0] == "splittest" {
-        split_test(&args[1..].to_vec(), &params);
-    } else if args[0] == "multirun" {
-        multirun(&args[1..].to_vec(), &params);
-    } else if args[0] == "approx" {
-        approx::approx(&args[1..].to_vec(), &params);
-    } else if args[0] == "config" {
-        config(&args[1..].to_vec(), &params);
-    } else if args[0] == "profile" {
-        profile(&args[1..].to_vec(), &params);
-    } else if args[0] == "workspace" {
-        workspace(&args[1..].to_vec(), &params);
-    } else {
-        eprintln!("Unknown option \"{}\"", args[0]);
-        std::process::exit(1);
-    }
+    match args {
+        Args::Stress(args) => stress_test(args, &params),
+        Args::IStress(args) => stress_test_inline(args, &params),
+        Args::Test(args) => run_tests(args, &params),
+        Args::Interact(args) => interact(args, &params),
+        Args::Parse(args) => parse(args, &params),
+        Args::MakeFile(args) => make_file(args, &mut params),
+        Args::Init(args) => init_task(args, &mut params),
+        Args::MakeTest(args) => make_test(args, &params),
+        Args::Draw(args) => draw::draw(args, &params),
+        Args::SplitTest(args) => split_test(args, &params),
+        Args::Multirun(args) => multirun(args, &params),
+        Args::Approx(args) => approx::approx(args, &params),
+        Args::Config(args) => config(args, &params),
+        Args::Profile(args) => profile(args, &params),
+        Args::Workspace(args) => workspace(args, &params),
+    };
 }
 
 // *********************************** internal ***********************************
@@ -2367,43 +1903,6 @@ fn guess_url_from_path() -> Option<String> {
         return Some(format!("https://cses.fi/problemset/task/{}", problem));
     }
     None
-}
-
-fn extract_codeforces_csrf(html: &str) -> String {
-    let search_for = "data-csrf='";
-    let idx = html.find(search_for).unwrap() + search_for.len();
-    html[idx..idx + 32].to_string()
-}
-
-fn get_login_password(source: &str) -> (String, String) {
-    let settings: Settings = match serde_json::from_str(&match fs::read_to_string(SETTINGS_FILE) {
-        Ok(x) => x,
-        Err(_) => {
-            eprintln!("Can't open \"settings.json\"");
-            std::process::exit(1);
-        }
-    }) {
-        Ok(x) => x,
-        Err(_) => {
-            eprintln!("Can't parse json from \"settings.json\"");
-            std::process::exit(1);
-        }
-    };
-    let login = match settings.auth.get(source).map(|auth| &auth.login) {
-        Some(x) => x,
-        None => {
-            eprintln!("Can't find {} login in \"settings.json\"", source);
-            std::process::exit(1);
-        }
-    };
-    let password = match settings.auth.get(source).map(|auth| &auth.password) {
-        Some(x) => x,
-        None => {
-            eprintln!("Can't find {} password in \"settings.json\"", source);
-            std::process::exit(1);
-        }
-    };
-    (login.to_string(), password.to_string())
 }
 
 fn get_default_file_extension() -> String {

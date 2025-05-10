@@ -3,10 +3,9 @@ use std::thread;
 
 use std::io::{self};
 
-use indoc::indoc;
-
 use std::sync::{Arc, Mutex};
 
+use clap::Parser;
 use druid::kurbo::{Circle, Line};
 use druid::widget::prelude::*;
 use druid::widget::{Checkbox, CrossAxisAlignment, Flex, MainAxisAlignment, Widget};
@@ -248,34 +247,14 @@ impl Widget<AppData> for DrawingWidget {
     }
 }
 
-pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr draw points [flags]
+#[derive(Parser)]
+pub struct PointsArgs {
+    /// Don't read n, just read points
+    #[arg(long)]
+    non: bool,
+}
 
-            Draws points
-
-            Flags:
-                --help              Display this message
-                --non               Don't read n, just read points
-        "};
-        print!("{}", s);
-        return;
-    }
-
-    let mut i = 0;
-    let mut non = false;
-
-    while i < args.len() {
-        if args[i] == "-non" {
-            non = true;
-        } else {
-            eprintln!("Unknown arg {}", args[i]);
-            std::process::exit(1);
-        }
-        i += 1;
-    }
-
+pub fn draw(args: PointsArgs, _params: &HashMap<String, String>) {
     let ptr = Arc::new(Mutex::new(Vec::<(f64, f64)>::new()));
     let thread_ptr = ptr.clone();
 
@@ -299,7 +278,7 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let mut s = String::new();
     let n: i32;
-    if !non {
+    if !args.non {
         io::stdin().read_line(&mut s).unwrap();
         n = s.trim().split(" ").next().unwrap().parse().unwrap();
     } else {

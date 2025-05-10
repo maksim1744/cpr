@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use std::io::{self};
 
-use indoc::indoc;
+use clap::Parser;
 
 use std::rc::Rc;
 
@@ -496,73 +496,48 @@ impl Widget<AppData> for DrawingWidget {
     }
 }
 
-pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr draw graph [flags]
+#[derive(Parser)]
+pub struct GraphArgs {
+    /// Add some information to the nodes. Possible formats:
+    ///     only  - don't shorw vertex indices, only info
+    ///     lines - read info for each vertex from new line. By default
+    ///             it reads one line and splits it by spaces.
+    #[arg(long, short)]
+    vertex_info: Vec<String>,
 
-            Draws a graph
+    /// Read edge info, on the same line with the corresponding edge
+    #[arg(long, short)]
+    edge_info: bool,
 
-            Flags:
-                --help                 Display this message
-                --vertex-info, -vi     Add some information to the nodes.
-                  -vi=[opt1],[opt2]    Configure options for vertex info
-                  -vi=only             Don't show vertex indices, only info
-                  -vi=lines            Read info for each vertex from new line (by default
-                                       it reads one line and splits it by spaces)
-                --edge-info, -ei       Add edge information (on the same line with the
-                                       corresponding edge)
-                --arcs                 Draw edges as arcs (may be useful with directed edges
-                                       in both sides)
-                --directed             Directed graph (draw arrows)
-        "};
-        print!("{}", s);
-        return;
-    }
+    /// Draw edges as arcs
+    #[arg(long, short)]
+    arcs: bool,
 
+    /// Draw edges as arrows
+    #[arg(long, short)]
+    directed: bool,
+}
+
+pub fn draw(args: GraphArgs, _params: &HashMap<String, String>) {
     let mut app_data = AppData {
         g: Rc::new(Vec::new()),
         vertex_info: Rc::new(Vec::new()),
-        only_vertex_info: false,
+        only_vertex_info: args.vertex_info.iter().any(|s| s == "only"),
         start_from_1: false,
-        draw_arcs: false,
+        draw_arcs: args.arcs,
         edge_info: Rc::new(Vec::new()),
-        is_edge_info: false,
-        directed: false,
+        is_edge_info: args.edge_info,
+        directed: args.directed,
     };
 
-    let mut is_vertex_info = false;
-    let mut vertex_info_lines = false;
-
-    let mut i = 0;
-    while i < args.len() {
-        if args[i].starts_with("--vertex-info") || args[i].starts_with("-vi") {
-            is_vertex_info = true;
-            if args[i].contains("only") {
-                app_data.only_vertex_info = true;
-            }
-            if args[i].contains("lines") {
-                vertex_info_lines = true;
-            }
-        } else if args[i] == "--edge-info" || args[i] == "-ei" {
-            app_data.is_edge_info = true;
-        } else if args[i] == "--arcs" {
-            app_data.draw_arcs = true;
-        } else if args[i] == "--directed" {
-            app_data.directed = true;
-        } else {
-            eprintln!("Unknown option \"{}\"", args[i]);
-            std::process::exit(1);
-        }
-        i += 1;
-    }
+    let vertex_info_lines = args.vertex_info.iter().any(|s| s == "lines");
 
     let mut s = String::new();
     io::stdin().read_line(&mut s).unwrap();
     let mut ln = s.trim().split(" ");
     let (n, m): (usize, usize) = (ln.next().unwrap().parse().unwrap(), ln.next().unwrap().parse().unwrap());
 
-    if is_vertex_info {
+    if !args.vertex_info.is_empty() {
         let mut vertex_info: Vec<String> = Vec::new();
         if !vertex_info_lines {
             let mut s = String::new();

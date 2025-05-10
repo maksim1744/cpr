@@ -2,10 +2,9 @@ use std::collections::HashMap;
 
 use std::io::{self};
 
-use indoc::indoc;
-
 use std::rc::Rc;
 
+use clap::Parser;
 use druid::kurbo::Line;
 use druid::piet::{FontFamily, Text, TextLayout, TextLayoutBuilder};
 use druid::widget::prelude::*;
@@ -177,38 +176,20 @@ impl Widget<AppData> for DrawingWidget {
     }
 }
 
-pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr draw matrix [flags]
+#[derive(Parser)]
+pub struct MatrixArgs {
+    /// Make a cell for each char, not each word
+    #[arg(short, long)]
+    chars: bool,
+}
 
-            Draws matrix or a cell field.
-
-            Flags:
-                --help                 Display this message
-                --chars, -c            Make a cell for each char, not each word
-        "};
-        print!("{}", s);
-        return;
-    }
-
+pub fn draw(args: MatrixArgs, _params: &HashMap<String, String>) {
     let mut app_data = AppData {
         mt: Rc::new(Vec::new()),
-        chars: false,
+        chars: args.chars,
         width: 0,
         draw_as_wires: [false; 6],
     };
-
-    let mut i = 0;
-    while i < args.len() {
-        if args[i] == "--chars" || args[i] == "-c" {
-            app_data.chars = true;
-        } else {
-            eprintln!("Unknown option \"{}\"", args[i]);
-            std::process::exit(1);
-        }
-        i += 1;
-    }
 
     let mut s = String::new();
     io::stdin().read_line(&mut s).unwrap();

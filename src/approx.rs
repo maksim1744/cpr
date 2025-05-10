@@ -6,11 +6,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
+use clap::Parser;
 use subprocess::{Popen, PopenConfig, Redirection};
 
 use crossterm::cursor;
-
-use indoc::indoc;
 
 use threadpool::ThreadPool;
 
@@ -26,30 +25,14 @@ mod test_log;
 use data::*;
 use test_info::*;
 
-pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr approx [flags]
+#[derive(Parser)]
+pub struct ApproxArgs {
+    /// Apply changes from *.out files without running solution
+    #[arg(long)]
+    norun: bool,
+}
 
-            Calls \"main [num]\" for each test, then with \"scorer [file_in] [file_ans]\"
-            compares current output from *.out and best answer from *.ans and leaves the
-            best one. In the end calls \"finalize\".
-
-            Flags:
-                --help              Display this message
-                --norun             Apply changes from *.out files without running solution
-        "};
-        print!("{}", s);
-        return;
-    }
-
-    let mut norun = false;
-    for arg in args {
-        if arg == "--norun" {
-            norun = true;
-        }
-    }
-
+pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
     let config = read_config();
 
     let tests_info: Arc<Mutex<Vec<TestInfo>>> = Arc::new(Mutex::new(Vec::new()));
@@ -63,7 +46,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
     let mut handle: Option<thread::JoinHandle<_>> = None;
 
-    if config.notion.is_some() && !norun {
+    if config.notion.is_some() && !args.norun {
         let tests_info = tests_info.clone();
         let total_info = total_info.clone();
         let config = config.clone();
@@ -105,7 +88,6 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
 
         let tests_info = tests_info.clone();
         let total_info = total_info.clone();
-        let norun = norun.clone();
         let stdout = stdout.clone();
 
         {
@@ -177,7 +159,7 @@ pub fn approx(args: &Vec<String>, _params: &HashMap<String, String>) {
             test_info.time = mtime::get_time(config.time_offset.unwrap());
             test_info.state = TestState::Running;
             update_tests_info(&test_info);
-            if !norun {
+            if !args.norun {
                 let mut filename_vec = config.main.as_ref().unwrap().clone();
                 filename_vec.push(test_name.clone());
 

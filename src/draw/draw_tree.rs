@@ -2,10 +2,9 @@ use std::collections::HashMap;
 
 use std::io::{self};
 
-use indoc::indoc;
-
 use std::rc::Rc;
 
+use clap::Parser;
 use druid::kurbo::{Circle, Line, RoundedRect};
 use druid::piet::{FontFamily, Text, TextLayout, TextLayoutBuilder};
 use druid::widget::prelude::*;
@@ -509,68 +508,41 @@ impl Widget<AppData> for DrawingWidget {
     }
 }
 
-pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
-    if !args.is_empty() && args[0] == "--help" {
-        let s = indoc! {"
-            Usage: cpr draw tree [flags]
+#[derive(Parser)]
+pub struct TreeArgs {
+    /// Add some information to the nodes. Possible formats:
+    ///     only  - don't shorw vertex indices, only info
+    ///     lines - read info for each vertex from new line. By default
+    ///             it reads one line and splits it by spaces.
+    #[arg(long, short)]
+    vertex_info: Vec<String>,
 
-            Draws a tree
+    /// Read edge info, on the same line with the corresponding edge
+    #[arg(long, short)]
+    edge_info: bool,
 
-            Flags:
-                --help                 Display this message
-                --ugly-edges           Draw edges in a different way to make sure they don't
-                                       intersect nodes.
-                --vertex-info, -vi     Add some information to the nodes.
-                  -vi=[opt1],[opt2]    Configure options for vertex info
-                  -vi=only             Don't show vertex indices, only info
-                  -vi=lines            Read info for each vertex from new line (by default
-                                       it reads one line and splits it by spaces)
-                --edge-info, -ei       Add edge information (on the same line with the
-                                       corresponding edge)
-        "};
-        print!("{}", s);
-        return;
-    }
+    /// Draw edges in a different way to make sure then don't intersect nodes
+    #[arg(long, short)]
+    ugly_edges: bool,
+}
 
+pub fn draw(args: TreeArgs, _params: &HashMap<String, String>) {
     let mut app_data = AppData {
         g: Rc::new(Vec::new()),
-        ugly_edges: false,
+        ugly_edges: args.ugly_edges,
         vertex_info: Rc::new(Vec::new()),
-        only_vertex_info: false,
+        only_vertex_info: args.vertex_info.iter().any(|s| s == "only"),
         start_from_1: false,
         edge_info: Rc::new(Vec::new()),
     };
 
-    let mut is_vertex_info = false;
-    let mut vertex_info_lines = false;
-    let mut is_edge_info = false;
-
-    let mut i = 0;
-    while i < args.len() {
-        if args[i] == "--ugly-edges" {
-            app_data.ugly_edges = true;
-        } else if args[i].starts_with("--vertex-info") || args[i].starts_with("-vi") {
-            is_vertex_info = true;
-            if args[i].contains("only") {
-                app_data.only_vertex_info = true;
-            }
-            if args[i].contains("lines") {
-                vertex_info_lines = true;
-            }
-        } else if args[i] == "--edge-info" || args[i] == "-ei" {
-            is_edge_info = true;
-        } else {
-            eprintln!("Unknown option \"{}\"", args[i]);
-            std::process::exit(1);
-        }
-        i += 1;
-    }
+    let vertex_info_lines = args.vertex_info.iter().any(|s| s == "lines");
 
     let mut s = String::new();
     io::stdin().read_line(&mut s).unwrap();
     let n: usize = s.trim().split(" ").next().unwrap().parse().unwrap();
 
-    if is_vertex_info {
+    if !args.vertex_info.is_empty() {
         let mut vertex_info: Vec<String> = Vec::new();
         if !vertex_info_lines {
             let mut s = String::new();
@@ -600,13 +572,13 @@ pub fn draw(args: &Vec<String>, _params: &HashMap<String, String>) {
         let mut v = iter.next().unwrap().parse::<usize>().unwrap();
         u -= 1;
         v -= 1;
-        if is_edge_info {
+        if args.edge_info {
             edge_info.push(((u, v), iter.collect::<Vec<_>>().join(" ")));
         }
         g[u].push(v);
         g[v].push(u);
     }
-    if is_edge_info {
+    if args.edge_info {
         app_data.edge_info = Rc::new(edge_info);
     }
 
