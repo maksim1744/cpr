@@ -41,17 +41,11 @@ use crate::util::*;
 const LOCAL_PARAMS_NAME: &str = "params";
 
 #[cfg(not(target_os = "windows"))]
-const PRECOMPILED_PATH: &str = "/home/maksim/tools/precompiled/O2";
-#[cfg(not(target_os = "windows"))]
-const SETTINGS_FILE: &str = "/home/maksim/tools/settings/settings.json";
-const RUST_LIBS_PATH: &str = "/mnt/c/RLibs";
+const SETTINGS_FILE: &str = "/home/maksim/.config/cpr/settings.json";
 
-#[cfg(target_os = "windows")]
-const PRECOMPILED_PATH: &str = "C:/MyPath/precompiled/O2";
 #[cfg(target_os = "windows")]
 const SETTINGS_FILE: &str = "C:/Users/magor/AppData/Local/cp_rust/settings.json";
 
-const DEFAULT_OPEN_FILE_CMD: &str = "subl.exe [file]:[line]:[char]";
 const DEFAULT_FILE_NAME: &str = "main";
 const DEFAULT_FILE_EXTENSION: &str = "cpp";
 const OPEN_FILE_ON_CREATION: bool = true;
@@ -67,6 +61,11 @@ enum ProblemSource {
 }
 
 #[derive(Default, Serialize, Deserialize)]
+struct BuildProfile {
+    cmd: Vec<String>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
 struct Config {
     #[serde(default)]
     lang: Option<String>,
@@ -74,12 +73,10 @@ struct Config {
     open_file_cmd: Option<String>,
     #[serde(default, rename = ".vscode")]
     vscode: HashMap<String, serde_json::Value>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct LoginInfo {
-    login: String,
-    password: String,
+    #[serde(default)]
+    libs_path: Option<String>,
+    #[serde(default)]
+    build: HashMap<String, BuildProfile>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -88,8 +85,6 @@ struct Settings {
     profile: String,
     #[serde(default)]
     config: HashMap<String, Config>,
-    #[serde(default)]
-    auth: HashMap<String, LoginInfo>,
 }
 
 impl Settings {
@@ -757,7 +752,7 @@ struct ParseArgs {
 }
 
 fn parse(args: ParseArgs, params: &HashMap<String, String>) {
-    let mut url: Option<String> = if params.contains_key("url") {
+    let mut url: Option<String> = if params.contains_key("url") && !args.force {
         Some(params.get("url").unwrap().clone())
     } else {
         None
@@ -1069,6 +1064,8 @@ fn make_file(args: MakeFileArgs, params: &mut HashMap<String, String>) {
         let template_base = template_base.trim().to_string();
         let template_base = template_base.split('\n').map(|x| x.trim_end()).collect::<Vec<_>>();
 
+        let libs_path = get_settings().config().libs_path.clone();
+
         let get_filtered_line = |line: &str| -> Option<String> {
             let mut ind: usize = 0;
             while ind < line.len() {
@@ -1096,7 +1093,10 @@ fn make_file(args: MakeFileArgs, params: &mut HashMap<String, String>) {
         let mut template = String::new();
 
         for line in template_base.iter() {
-            if let Some(line) = get_filtered_line(line) {
+            if let Some(mut line) = get_filtered_line(line) {
+                if let Some(libs_path) = libs_path.as_ref() {
+                    line = line.replace("[libs_path]", libs_path);
+                }
                 template += &line;
                 template.push('\n');
             }
@@ -1133,21 +1133,18 @@ fn make_file(args: MakeFileArgs, params: &mut HashMap<String, String>) {
     }
 
     if OPEN_FILE_ON_CREATION {
-        let open_file_cmd = get_settings()
-            .config()
-            .open_file_cmd
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or_else(|| DEFAULT_OPEN_FILE_CMD)
-            .replace("[file]", full_name)
-            .replace("[line]", &position.0.to_string())
-            .replace("[char]", &position.1.to_string());
-        let parts = open_file_cmd.split_whitespace().collect::<Vec<_>>();
-        let mut command = std::process::Command::new(parts[0]);
-        for part in parts[1..].into_iter() {
-            command.arg(part);
+        if let Some(open_file_cmd) = get_settings().config().open_file_cmd.as_ref().map(|s| s.as_str()) {
+            let open_file_cmd = open_file_cmd
+                .replace("[file]", full_name)
+                .replace("[line]", &position.0.to_string())
+                .replace("[char]", &position.1.to_string());
+            let parts = open_file_cmd.split_whitespace().collect::<Vec<_>>();
+            let mut command = std::process::Command::new(parts[0]);
+            for part in parts[1..].into_iter() {
+                command.arg(part);
+            }
+            command.output().unwrap();
         }
-        command.output().unwrap();
     }
 }
 
@@ -1517,28 +1514,94 @@ fn workspace(_args: WorkspaceArgs, _params: &HashMap<String, String>) {
     let settings: Settings = get_settings();
     let config = settings.config();
     let lang = config.lang.as_ref().unwrap();
-    if lang == "cpp" {
-        println!("Nothing to do for cpp");
-        return;
-    }
-    if lang != "rs" {
-        panic!("Don't know what to do for {}", lang);
-    }
-    let cargo_path = std::path::Path::new("Cargo.toml");
-    if cargo_path.exists() {
-        panic!("Cargo.toml already exists here");
-    }
 
-    let lines = fs::read_to_string(get_templates_path().join("Cargo_workspace.toml")).unwrap();
-    let mut file = fs::File::create(cargo_path).unwrap();
-    file.write_all(lines.as_bytes()).unwrap();
+    match lang.as_str() {
+        "cpp" => {
+            let compile_flags = get_templates_path().join("cpp_compile_flags.txt");
+            if fs::exists(&compile_flags).unwrap() {
+                fs::copy(&compile_flags, "compile_flags.txt").unwrap();
+            }
+        }
+        "rs" => {
+            let cargo_path = std::path::Path::new("Cargo.toml");
+            if cargo_path.exists() {
+                panic!("Cargo.toml already exists here");
+            }
 
-    for (key, value) in config.vscode.iter() {
-        let _ = std::fs::create_dir_all(".vscode");
-        fs::File::create(format!(".vscode/{key}"))
-            .unwrap()
-            .write_all(serde_json::to_string_pretty(value).unwrap().as_bytes())
-            .unwrap();
+            let lines = fs::read_to_string(get_templates_path().join("Cargo_workspace.toml")).unwrap();
+            let mut file = fs::File::create(cargo_path).unwrap();
+            file.write_all(lines.as_bytes()).unwrap();
+
+            for (key, value) in config.vscode.iter() {
+                let _ = std::fs::create_dir_all(".vscode");
+                fs::File::create(format!(".vscode/{key}"))
+                    .unwrap()
+                    .write_all(serde_json::to_string_pretty(value).unwrap().as_bytes())
+                    .unwrap();
+            }
+        }
+        x => {
+            eprintln!("Don't know what to do for {x}");
+            std::process::exit(1);
+        }
+    }
+}
+
+#[derive(Parser)]
+struct BuildArgs {
+    /// Build profile from settings.json
+    profile: String,
+
+    /// Main executable to run
+    filename: Option<String>,
+}
+
+#[derive(Parser)]
+struct BuildAliasArgs {
+    /// Main executable to run
+    filename: Option<String>,
+}
+
+fn build(args: BuildArgs, _params: &HashMap<String, String>) {
+    let settings = get_settings();
+    let config = settings.config();
+    let profile = config
+        .build
+        .get(&args.profile)
+        .or_else(|| {
+            let cnt = config.build.keys().filter(|k| k.starts_with(&args.profile)).count();
+            if cnt == 1 {
+                config
+                    .build
+                    .iter()
+                    .find(|p| p.0.starts_with(&args.profile))
+                    .map(|p| p.1)
+            } else {
+                None
+            }
+        })
+        .expect(&format!("Profile \"{}\" not found", args.profile));
+    let filename = args.filename.unwrap_or(String::from(DEFAULT_FILE_NAME));
+
+    let cmd = profile
+        .cmd
+        .iter()
+        .map(|item| {
+            item.replace("[filename]", &filename)
+                .replace("[extension]", &get_default_file_extension())
+        })
+        .collect::<Vec<_>>();
+
+    println!("Running cmd {:?}", cmd);
+    let mut p = Popen::create(&cmd, PopenConfig { ..Default::default() }).unwrap();
+    p.wait().unwrap();
+    if let None = p.poll() {
+        p.terminate().unwrap();
+        panic!("Build process failed");
+    }
+    let result = p.poll().unwrap();
+    if !result.success() {
+        panic!("Build process failed");
     }
 }
 
@@ -1625,6 +1688,22 @@ enum Args {
 
     /// Setup workspace
     Workspace(WorkspaceArgs),
+
+    /// Build
+    #[clap(alias("b"))]
+    Build(BuildArgs),
+
+    /// Alias for "build debug"
+    #[command(name = "bd")]
+    BuildDebug(BuildAliasArgs),
+
+    /// Alias for "build release"
+    #[command(name = "br")]
+    BuildRelease(BuildAliasArgs),
+
+    /// Alias for "build gdb"
+    #[command(name = "bg")]
+    BuildGdb(BuildAliasArgs),
 }
 
 fn main() {
@@ -1646,6 +1725,29 @@ fn main() {
         Args::Config(args) => config(args, &params),
         Args::Profile(args) => profile(args, &params),
         Args::Workspace(args) => workspace(args, &params),
+        Args::Build(args) => build(args, &params),
+
+        Args::BuildDebug(args) => build(
+            BuildArgs {
+                profile: "debug".to_string(),
+                filename: args.filename,
+            },
+            &params,
+        ),
+        Args::BuildRelease(args) => build(
+            BuildArgs {
+                profile: "release".to_string(),
+                filename: args.filename,
+            },
+            &params,
+        ),
+        Args::BuildGdb(args) => build(
+            BuildArgs {
+                profile: "gdb".to_string(),
+                filename: args.filename,
+            },
+            &params,
+        ),
     };
 }
 
@@ -1987,9 +2089,8 @@ fn compile_cpr_tmp_file() -> Result<(), ()> {
 
     let mut p = Popen::create(
         &format!(
-            "g++ --std=c++20 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -DHOUSE -Winvalid-pch {} -I{}",
+            "g++ --std=c++20 -O2 cpr_tmp_file.cpp -o cpr_tmp_file -DHOUSE -Winvalid-pch {}",
             if cfg!(unix) { "" } else { "-Wl,-stack,1073741824" },
-            PRECOMPILED_PATH
         )
         .split_whitespace()
         .collect::<Vec<_>>(),
@@ -2020,6 +2121,12 @@ fn get_templates_path() -> std::path::PathBuf {
 }
 
 fn init_rust_directory() {
+    let rust_libs_path = get_settings()
+        .config()
+        .libs_path
+        .as_ref()
+        .cloned()
+        .expect("You need to set \"libs_path\": \"/path/to/rlib\" in settings");
     std::fs::create_dir_all("src/bin").unwrap();
     if !std::path::Path::new("Cargo.toml").exists() {
         let lines = fs::read_to_string(get_templates_path().join("Cargo.toml")).unwrap();
@@ -2041,8 +2148,8 @@ fn init_rust_directory() {
                 file.write(name.as_bytes()).unwrap();
             } else if line.trim() == "[rlib]" {
                 for folder in [
-                    &[RUST_LIBS_PATH, "/rlib"].concat(),
-                    &[RUST_LIBS_PATH, "/external"].concat(),
+                    &[&rust_libs_path, "/rlib"].concat(),
+                    &[&rust_libs_path, "/external"].concat(),
                 ] {
                     let mut libs: Vec<(String, String)> = Vec::new();
                     for path in fs::read_dir(folder).unwrap() {
@@ -2115,10 +2222,9 @@ fn init_rust_directory() {
 }
 
 fn get_settings() -> Settings {
-    match serde_json::from_str::<Settings>(&match fs::read_to_string(SETTINGS_FILE) {
-        Ok(x) => x,
-        Err(_) => "{}".to_string(),
-    }) {
+    match serde_json::from_str::<Settings>(
+        &fs::read_to_string(SETTINGS_FILE).expect(&format!("No settings file found at {SETTINGS_FILE}")),
+    ) {
         Ok(x) => {
             if !x.config.contains_key(&x.profile) {
                 panic!("No config for profile {}", x.profile);

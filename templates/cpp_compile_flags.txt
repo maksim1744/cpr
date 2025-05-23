@@ -1,0 +1,9 @@
+-DHOME
+-DHOUSE
+-Wall
+-Wextra
+-Wno-sign-compare
+-Winvalid-pch
+-Wno-unused-parameter
+--std=c++20
+
