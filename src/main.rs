@@ -1024,9 +1024,8 @@ fn make_file(args: MakeFileArgs, params: &mut HashMap<String, String>) {
     if extension == "rs" {
         init_rust_directory();
         filename = format!(
-            "src/bin/{}_{}",
+            "src/bin/{}",
             filename,
-            std::env::current_dir().unwrap().file_name().unwrap().to_str().unwrap()
         );
     }
     let full_name = &[&filename, ".", &extension].concat();
