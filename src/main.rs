@@ -4,7 +4,7 @@ use draw::DrawArgs;
 use serde::{Deserialize, Serialize};
 use subprocess::{ExitStatus, Popen, PopenConfig, Redirection};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::{self, BufReader, Write};
@@ -72,11 +72,11 @@ struct Config {
     #[serde(default)]
     open_file_cmd: Option<String>,
     #[serde(default, rename = ".vscode")]
-    vscode: HashMap<String, serde_json::Value>,
+    vscode: BTreeMap<String, serde_json::Value>,
     #[serde(default)]
     libs_path: Option<String>,
     #[serde(default)]
-    build: HashMap<String, BuildProfile>,
+    build: BTreeMap<String, BuildProfile>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -84,7 +84,7 @@ struct Settings {
     #[serde(default)]
     profile: String,
     #[serde(default)]
-    config: HashMap<String, Config>,
+    config: BTreeMap<String, Config>,
 }
 
 impl Settings {
@@ -257,6 +257,7 @@ struct IStressTestArgs {
     /// Command line for easy solution
     #[arg(long)]
     easy: Option<String>,
+
 
     /// Command line for gen solution
     #[arg(long)]

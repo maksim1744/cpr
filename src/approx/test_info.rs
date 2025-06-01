@@ -30,17 +30,23 @@ pub struct TestInfo {
     pub prev_score: Option<f64>,
     pub new_score: Option<f64>,
     pub time: String,
+    pub cpu_time: f64,
+    pub runs: usize,
+    pub total_runs: usize,
     pub result: TestResult,
 }
 
 impl TestInfo {
-    pub fn new(test_name: String) -> Self {
+    pub fn new(test_name: String, total_runs: usize) -> Self {
         TestInfo {
             test_name,
             state: TestState::Queue,
             prev_score: None,
             new_score: None,
             time: String::new(),
+            cpu_time: 0.0,
+            runs: 0,
+            total_runs,
             result: TestResult::Same,
         }
     }
@@ -51,7 +57,16 @@ impl TestInfo {
         write!(stdout, "| ").unwrap();
         write!(stdout, "{}", self.test_name).unwrap();
         write!(stdout, " | ").unwrap();
-        write!(stdout, "{: >12}", self.time).unwrap();
+        write!(
+            stdout,
+            "{: >12}",
+            if self.runs == self.total_runs {
+                format!("{:.3}", self.cpu_time)
+            } else {
+                self.time.clone()
+            }
+        )
+        .unwrap();
         write!(stdout, " | ").unwrap();
         match self.prev_score {
             Some(score) => write!(stdout, "{: >12.prec$}", score, prec = precision).unwrap(),
@@ -65,13 +80,18 @@ impl TestInfo {
                     write!(stdout, "{:->12}", "").unwrap();
                 } else if self.state == TestState::Failed || self.state == TestState::WrongAnswer {
                     stdout.execute(SetForegroundColor(Color::Red)).unwrap();
-                    write!(stdout, "{: >12}", "error").unwrap();
+                    write!(
+                        stdout,
+                        "{: >12}",
+                        if self.state == TestState::Failed { "error" } else { "WA" }
+                    )
+                    .unwrap();
                 } else {
                     write!(stdout, "{: >12}", "").unwrap();
                 }
             }
         };
-        stdout.execute(SetForegroundColor(Color::White)).unwrap();
+        stdout.execute(SetForegroundColor(Color::Reset)).unwrap();
         write!(stdout, " | ").unwrap();
         let mut delta = String::new();
         if self.prev_score.is_some() && self.new_score.is_some() {
@@ -88,11 +108,22 @@ impl TestInfo {
             .execute(match self.result {
                 TestResult::Better => SetForegroundColor(Color::Green),
                 TestResult::Worse => SetForegroundColor(Color::Red),
-                _ => SetForegroundColor(Color::White),
+                _ => SetForegroundColor(Color::Reset),
             })
             .unwrap();
         write!(stdout, "{: >12}", delta).unwrap();
-        stdout.execute(SetForegroundColor(Color::White)).unwrap();
+        stdout.execute(SetForegroundColor(Color::Reset)).unwrap();
+        write!(stdout, " | ").unwrap();
+        write!(
+            stdout,
+            "{: >12}",
+            if self.state == TestState::Skipped {
+                String::new()
+            } else {
+                format!("{}/{}", self.runs, self.total_runs)
+            }
+        )
+        .unwrap();
         write!(stdout, " |").unwrap();
     }
 

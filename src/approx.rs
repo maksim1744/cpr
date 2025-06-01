@@ -30,6 +30,10 @@ pub struct ApproxArgs {
     /// Apply changes from *.out files without running solution
     #[arg(long)]
     norun: bool,
+
+    /// Number of global iterations
+    #[arg(short = 'n', long, default_value_t = 1)]
+    iters: usize,
 }
 
 pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
@@ -60,8 +64,8 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
     // stdout.suspend_raw_mode().unwrap();
 
     let title = format!(
-        "| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |",
-        "", "time", "prev", "new", "delta"
+        "| {: ^3} | {: ^12} | {: ^12} | {: ^12} | {: ^12} | {: ^12} |",
+        "", "time", "prev", "new", "delta", "done"
     );
     write!(stdout, "{}\n", title).unwrap();
     let splitter: String = title.chars().map(|c| if c == '|' { '|' } else { '-' }).collect();
@@ -75,6 +79,8 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
 
     let stdout = Arc::new(Mutex::new(stdout));
 
+    let mut tasks = vec![vec![]; args.iters];
+
     for test in 1..config.tests + 1 {
         let index: usize = tests_info.lock().unwrap().len();
         let tests = config.tests;
@@ -83,7 +89,7 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
 
         let skip = config.skip_tests.as_ref().unwrap().binary_search(&test).is_ok();
         let test_name = format!("{:0>3}", test);
-        let mut test_info = TestInfo::new(test_name.clone());
+        let mut test_info = TestInfo::new(test_name.clone(), args.iters);
         tests_info.lock().unwrap().push(test_info.clone());
 
         let tests_info = tests_info.clone();
@@ -98,160 +104,214 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
             stdout.flush().unwrap();
         }
 
-        pool.execute(move || {
-            let update_tests_info = |test_info: &TestInfo| {
-                {
-                    let mut stdout = stdout.lock().unwrap();
-                    write!(stdout, "{}", cursor::MoveUp((tests - index) as u16)).unwrap();
-                    test_info.print(&config, &mut stdout);
-                    write!(stdout, "{}", cursor::MoveDown((tests - index) as u16)).unwrap();
-                    stdout.flush().unwrap();
+        let update_tests_info = |test_info: &TestInfo| {
+            {
+                let mut stdout = stdout.lock().unwrap();
+                write!(stdout, "{}", cursor::MoveUp((tests - index) as u16)).unwrap();
+                test_info.print(&config, &mut stdout);
+                write!(stdout, "{}", cursor::MoveDown((tests - index) as u16)).unwrap();
+                stdout.flush().unwrap();
+            }
+            tests_info.lock().unwrap()[index] = test_info.clone();
+        };
+
+        if skip {
+            test_info.state = TestState::Skipped;
+        }
+
+        update_tests_info(&test_info);
+
+        // calculate score from .ans
+        if Path::new(&format!("tests/{}.ans", test_name)).exists() {
+            let mut filename_vec = config.scorer.as_ref().unwrap().clone();
+            filename_vec.push(format!("tests/{}.in", test_name));
+            filename_vec.push(format!("tests/{}.ans", test_name));
+
+            let mut p = match Popen::create(
+                &filename_vec[..],
+                PopenConfig {
+                    stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
+                    stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
+                    ..Default::default()
+                },
+            ) {
+                Ok(x) => x,
+                Err(_) => {
+                    eprintln!("Error when starting process {:?}", filename_vec);
+                    std::process::exit(1)
                 }
-                tests_info.lock().unwrap()[index] = test_info.clone();
             };
 
-            if skip {
-                test_info.state = TestState::Skipped;
+            p.wait().unwrap();
+            let exit_status = p.poll().unwrap();
+            if !exit_status.success() {
+                eprintln!("Scorer failed on {}.ans", test_name);
+                std::process::exit(1);
             }
-
+            let out = fs::read_to_string(format!("tests/{}.tmp", test_name)).unwrap();
+            test_info.prev_score = Some(out.trim().parse().expect("Can't parse score"));
             update_tests_info(&test_info);
+            total_info.lock().unwrap().score += test_info.prev_score.unwrap();
+        }
 
-            // calculate score from .ans
-            if Path::new(&format!("tests/{}.ans", test_name)).exists() {
-                let mut filename_vec = config.scorer.as_ref().unwrap().clone();
-                filename_vec.push(format!("tests/{}.in", test_name));
-                filename_vec.push(format!("tests/{}.ans", test_name));
-
-                let mut p = match Popen::create(
-                    &filename_vec[..],
-                    PopenConfig {
-                        stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
-                        stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
-                        ..Default::default()
-                    },
-                ) {
-                    Ok(x) => x,
-                    Err(_) => {
-                        eprintln!("Error when starting process {:?}", filename_vec);
-                        std::process::exit(1)
-                    }
-                };
-
-                p.wait().unwrap();
-                let exit_status = p.poll().unwrap();
-                if !exit_status.success() {
-                    eprintln!("Scorer failed on {}.ans", test_name);
-                    std::process::exit(1);
-                }
-                let out = fs::read_to_string(format!("tests/{}.tmp", test_name)).unwrap();
-                test_info.prev_score = Some(out.trim().parse().expect("Can't parse score"));
-                update_tests_info(&test_info);
-                total_info.lock().unwrap().score += test_info.prev_score.unwrap();
-            }
-
-            if skip {
-                test_info.time = format!("{:->12}", "");
-                update_tests_info(&test_info);
-                return;
-            }
-
-            // run solution
-            test_info.time = mtime::get_time(config.time_offset.unwrap());
-            test_info.state = TestState::Running;
+        if skip {
+            test_info.time = format!("{:->12}", "");
             update_tests_info(&test_info);
-            if !args.norun {
-                let mut filename_vec = config.main.as_ref().unwrap().clone();
-                filename_vec.push(test_name.clone());
+            continue;
+        }
 
-                let now = Instant::now();
-                let mut p = match Popen::create(
-                    &filename_vec[..],
-                    PopenConfig {
-                        stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
-                        ..Default::default()
-                    },
-                ) {
-                    Ok(x) => x,
-                    Err(_) => {
-                        eprintln!("Error when starting process {:?}", filename_vec);
-                        std::process::exit(1)
+        test_info.time = mtime::get_time(config.time_offset.unwrap());
+        test_info.state = TestState::Running;
+
+        let test_info = Arc::new(Mutex::new(test_info));
+        for run in 1..=args.iters {
+            let ans_test_name = test_name.clone();
+            let test_name = format!("{}-{:0>3}", test_name, run);
+            let stdout = stdout.clone();
+            let config = config.clone();
+            let tests_info = tests_info.clone();
+            let test_info = test_info.clone();
+            let total_info = total_info.clone();
+            tasks[run - 1].push(move || {
+                let update_tests_info = |test_info: &TestInfo| {
+                    {
+                        let mut stdout = stdout.lock().unwrap();
+                        write!(stdout, "{}", cursor::MoveUp((tests - index) as u16)).unwrap();
+                        test_info.print(&config, &mut stdout);
+                        write!(stdout, "{}", cursor::MoveDown((tests - index) as u16)).unwrap();
+                        stdout.flush().unwrap();
                     }
+                    tests_info.lock().unwrap()[index] = test_info.clone();
                 };
 
-                p.wait().unwrap();
-                let exit_status = p.poll().unwrap();
+                // run solution
+                update_tests_info(&*test_info.lock().unwrap());
+                if !args.norun {
+                    let mut filename_vec = config.main.as_ref().unwrap().clone();
+                    filename_vec.push(format!("tests/{}.in", ans_test_name));
+                    filename_vec.push(format!("tests/{}.out", test_name));
 
-                let time = now.elapsed().as_millis();
-                test_info.time = format!("{:.3}", time as f64 / 1000.);
-                total_info.lock().unwrap().cpu_time += time;
-                update_tests_info(&test_info);
+                    let now = Instant::now();
+                    let mut p = match Popen::create(
+                        &filename_vec[..],
+                        PopenConfig {
+                            stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
+                            ..Default::default()
+                        },
+                    ) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            eprintln!("Error when starting process {:?}", filename_vec);
+                            std::process::exit(1)
+                        }
+                    };
 
-                if !exit_status.success() {
-                    test_info.state = TestState::Failed;
+                    p.wait().unwrap();
+                    let exit_status = p.poll().unwrap();
+
+                    let time = now.elapsed().as_millis();
+                    let mut test_info = test_info.lock().unwrap();
+                    test_info.runs += 1;
+                    test_info.cpu_time += time as f64 / 1000.;
+                    total_info.lock().unwrap().cpu_time += time;
                     update_tests_info(&test_info);
-                    return;
-                }
-            } else {
-                test_info.time = format!("{:->12}", "");
-                update_tests_info(&test_info);
-            }
 
-            // calculate score from .out
-            {
-                let mut filename_vec = config.scorer.as_ref().unwrap().clone();
-                filename_vec.push(format!("tests/{}.in", test_name));
-                filename_vec.push(format!("tests/{}.out", test_name));
-
-                let mut p = match Popen::create(
-                    &filename_vec[..],
-                    PopenConfig {
-                        stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
-                        stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
-                        ..Default::default()
-                    },
-                ) {
-                    Ok(x) => x,
-                    Err(_) => {
-                        eprintln!("Error when starting process {:?}", filename_vec);
-                        std::process::exit(1)
+                    if !exit_status.success() {
+                        test_info.state = TestState::Failed;
+                        update_tests_info(&test_info);
+                        return;
                     }
-                };
-
-                p.wait().unwrap();
-                let exit_status = p.poll().unwrap();
-                if !exit_status.success() {
-                    test_info.state = TestState::WrongAnswer;
+                } else {
+                    let mut test_info = test_info.lock().unwrap();
+                    test_info.runs += 1;
+                    test_info.time = format!("{:->12}", "");
                     update_tests_info(&test_info);
-                    return;
                 }
-                let out = fs::read_to_string(format!("tests/{}.tmp", test_name)).unwrap();
-                test_info.new_score = Some(out.trim().parse().expect("Can't parse score"));
-                test_info.state = TestState::Completed;
-                update_tests_info(&test_info);
-                if let Some(prev_score) = test_info.prev_score {
-                    let delta = test_info.new_score.unwrap() - prev_score;
-                    if delta != 0. {
-                        if (delta > 0.) == (config.optimize == "max") {
-                            test_info.result = TestResult::Better;
+
+                // calculate score from .out
+                {
+                    let mut filename_vec = config.scorer.as_ref().unwrap().clone();
+                    filename_vec.push(format!("tests/{}.in", ans_test_name));
+                    filename_vec.push(format!("tests/{}.out", test_name));
+
+                    let mut p = match Popen::create(
+                        &filename_vec[..],
+                        PopenConfig {
+                            stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
+                            stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
+                            ..Default::default()
+                        },
+                    ) {
+                        Ok(x) => x,
+                        Err(_) => {
+                            eprintln!("Error when starting process {:?}", filename_vec);
+                            std::process::exit(1)
+                        }
+                    };
+
+                    p.wait().unwrap();
+                    let exit_status = p.poll().unwrap();
+                    let mut test_info = test_info.lock().unwrap();
+                    if !exit_status.success() {
+                        test_info.state = TestState::WrongAnswer;
+                        update_tests_info(&test_info);
+                        return;
+                    }
+                    let out = fs::read_to_string(format!("tests/{}.tmp", test_name)).unwrap();
+                    let new_score = out.trim().parse().expect("Can't parse score");
+                    let mut current_better = false;
+                    let was_score = test_info.new_score.or(test_info.prev_score);
+                    if test_info.new_score.is_none()
+                        || (new_score > test_info.new_score.unwrap()) == (config.optimize == "max")
+                    {
+                        if let Some(score) = test_info.prev_score {
+                            if (new_score > score) == (config.optimize == "max") {
+                                current_better = true;
+                            }
                         } else {
-                            test_info.result = TestResult::Worse;
+                            current_better = true;
+                        }
+                        test_info.new_score = Some(new_score);
+                    }
+                    if test_info.runs == test_info.total_runs && test_info.state == TestState::Running {
+                        test_info.state = TestState::Completed;
+                    }
+                    update_tests_info(&test_info);
+                    if let Some(prev_score) = test_info.prev_score {
+                        let delta = test_info.new_score.unwrap() - prev_score;
+                        if delta != 0. {
+                            if (delta > 0.) == (config.optimize == "max") {
+                                test_info.result = TestResult::Better;
+                            } else {
+                                test_info.result = TestResult::Worse;
+                            }
                         }
                     }
-                }
-                update_tests_info(&test_info);
-            }
+                    update_tests_info(&test_info);
 
-            if test_info.result == TestResult::Better || test_info.prev_score.is_none() {
-                fs::copy(format!("tests/{}.out", test_name), format!("tests/{}.ans", test_name)).unwrap();
-                let mut total_info = total_info.lock().unwrap();
-                if let Some(prev_score) = test_info.prev_score {
-                    total_info.score -= prev_score;
-                    total_info.delta -= prev_score;
+                    if current_better {
+                        fs::copy(
+                            format!("tests/{}.out", test_name),
+                            format!("tests/{}.ans", ans_test_name),
+                        )
+                        .unwrap();
+                        let mut total_info = total_info.lock().unwrap();
+                        if let Some(prev_score) = was_score {
+                            total_info.score -= prev_score;
+                            total_info.delta -= prev_score;
+                        }
+                        total_info.score += test_info.new_score.unwrap();
+                        total_info.delta += test_info.new_score.unwrap();
+                    }
                 }
-                total_info.score += test_info.new_score.unwrap();
-                total_info.delta += test_info.new_score.unwrap();
-            }
-        });
+            });
+        }
+    }
+
+    for row in tasks.into_iter() {
+        for task in row.into_iter() {
+            pool.execute(task);
+        }
     }
 
     pool.join();
