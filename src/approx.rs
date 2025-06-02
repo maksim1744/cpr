@@ -214,12 +214,8 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     filename_vec.push(format!("tests/{}.out", test_name));
 
                     let now = Instant::now();
-                    let success = if let Some(client) = client {
-                        let success = client.run(filename_vec);
-                        if success {
-                            client.get_file(format!("tests/{}.out", test_name));
-                        }
-                        success
+                    let success = if let Some(client) = client.as_ref() {
+                        client.run(filename_vec)
                     } else {
                         let mut p = match Popen::create(
                             &filename_vec[..],
@@ -258,6 +254,10 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     test_info.runs += 1;
                     test_info.time = format!("{:->12}", "");
                     update_tests_info(&test_info);
+                }
+
+                if let Some(client) = client.as_ref() {
+                    client.get_file(format!("tests/{}.out", test_name));
                 }
 
                 // calculate score from .out
@@ -379,7 +379,11 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
             }
         };
 
-        p.wait().unwrap();
+        let exit_status = p.wait().unwrap();
+        if !exit_status.success() {
+            eprintln!("finalize failed with status {:?}", exit_status);
+            std::process::exit(1)
+        }
     }
 
     if let Some(handle) = handle {

@@ -70,7 +70,7 @@ impl Client {
                     cmd,
                     workdir: self.workdir.clone(),
                 },
-                32,
+                128,
             )
             .unwrap();
         self.get(&format!("/wait-run/{id}"), 128)
