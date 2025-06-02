@@ -19,6 +19,7 @@ mod client_wrapper;
 mod data;
 mod mtime;
 mod notion;
+mod remote;
 mod test_info;
 mod test_log;
 
@@ -34,6 +35,10 @@ pub struct ApproxArgs {
     /// Number of global iterations
     #[arg(short = 'n', long, default_value_t = 1)]
     iters: usize,
+
+    /// Run main solution on remote host
+    #[arg(long)]
+    remote: bool,
 }
 
 pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
@@ -59,6 +64,17 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
         }));
     }
 
+    let mut client = None;
+    if args.remote {
+        if config.remote.is_none() {
+            eprintln!("Set \"remote\" config in config.json to use --remote");
+            std::process::exit(1);
+        }
+        let client_str = remote::Client::new(config.remote.as_ref().unwrap());
+        client_str.init();
+        client = Some(Arc::new(client_str));
+    }
+
     // let mut stdout = stdout().into_raw_mode().unwrap();
     let mut stdout = stdout();
     // stdout.suspend_raw_mode().unwrap();
@@ -75,7 +91,12 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
         write!(stdout, "\n").unwrap();
     }
 
-    let pool = ThreadPool::new(config.threads.unwrap());
+    let threads = if args.remote {
+        config.remote.as_ref().unwrap().threads
+    } else {
+        config.threads.unwrap()
+    };
+    let pool = ThreadPool::new(threads);
 
     let stdout = Arc::new(Mutex::new(stdout));
 
@@ -172,6 +193,7 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
             let tests_info = tests_info.clone();
             let test_info = test_info.clone();
             let total_info = total_info.clone();
+            let client = client.clone();
             tasks[run - 1].push(move || {
                 let update_tests_info = |test_info: &TestInfo| {
                     {
@@ -192,22 +214,32 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     filename_vec.push(format!("tests/{}.out", test_name));
 
                     let now = Instant::now();
-                    let mut p = match Popen::create(
-                        &filename_vec[..],
-                        PopenConfig {
-                            stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
-                            ..Default::default()
-                        },
-                    ) {
-                        Ok(x) => x,
-                        Err(_) => {
-                            eprintln!("Error when starting process {:?}", filename_vec);
-                            std::process::exit(1)
+                    let success = if let Some(client) = client {
+                        let success = client.run(filename_vec);
+                        if success {
+                            client.get_file(format!("tests/{}.out", test_name));
                         }
-                    };
+                        success
+                    } else {
+                        let mut p = match Popen::create(
+                            &filename_vec[..],
+                            PopenConfig {
+                                stderr: Redirection::File(
+                                    fs::File::create(format!("tests/{}.err", test_name)).unwrap(),
+                                ),
+                                ..Default::default()
+                            },
+                        ) {
+                            Ok(x) => x,
+                            Err(_) => {
+                                eprintln!("Error when starting process {:?}", filename_vec);
+                                std::process::exit(1)
+                            }
+                        };
 
-                    p.wait().unwrap();
-                    let exit_status = p.poll().unwrap();
+                        p.wait().unwrap();
+                        p.poll().unwrap().success()
+                    };
 
                     let time = now.elapsed().as_millis();
                     let mut test_info = test_info.lock().unwrap();
@@ -216,7 +248,7 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     total_info.lock().unwrap().cpu_time += time;
                     update_tests_info(&test_info);
 
-                    if !exit_status.success() {
+                    if !success {
                         test_info.state = TestState::Failed;
                         update_tests_info(&test_info);
                         return;

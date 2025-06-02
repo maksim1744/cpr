@@ -8,6 +8,16 @@ pub struct NotionConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+pub struct RemoteConfig {
+    pub local_port: u16,
+    pub workdir: String,
+    pub copy: Vec<String>,
+    #[serde(default)]
+    pub prerun: Vec<Vec<String>>,
+    pub threads: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub tests: usize,
     pub optimize: String,    // "min" or "max"
@@ -25,6 +35,7 @@ pub struct Config {
     pub finalize: Option<Vec<String>>,
 
     pub notion: Option<NotionConfig>,
+    pub remote: Option<RemoteConfig>,
 }
 
 #[derive(Debug, Clone)]

@@ -258,7 +258,6 @@ struct IStressTestArgs {
     #[arg(long)]
     easy: Option<String>,
 
-
     /// Command line for gen solution
     #[arg(long)]
     gen: Option<String>,
@@ -1024,10 +1023,7 @@ fn make_file(args: MakeFileArgs, params: &mut HashMap<String, String>) {
 
     if extension == "rs" {
         init_rust_directory();
-        filename = format!(
-            "src/bin/{}",
-            filename,
-        );
+        filename = format!("src/bin/{}", filename);
     }
     let full_name = &[&filename, ".", &extension].concat();
     if Path::new(full_name).exists() {
