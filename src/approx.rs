@@ -108,7 +108,11 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
 
         let config = config.clone();
 
-        let skip = config.skip_tests.as_ref().unwrap().binary_search(&test).is_ok();
+        let skip = if !config.run_tests.is_empty() {
+            !config.run_tests.binary_search(&test).is_ok()
+        } else {
+            config.skip_tests.binary_search(&test).is_ok()
+        };
         let test_name = format!("{:0>3}", test);
         let mut test_info = TestInfo::new(test_name.clone(), args.iters);
         tests_info.lock().unwrap().push(test_info.clone());
@@ -241,7 +245,6 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
 
                     let time = now.elapsed().as_millis();
                     let mut test_info = test_info.lock().unwrap();
-                    test_info.runs += 1;
                     test_info.cpu_time += time as f64 / 1000.;
                     total_info.lock().unwrap().cpu_time += time;
                     update_tests_info(&test_info);
@@ -249,6 +252,7 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     if !success {
                         test_info.state = TestState::Failed;
                         test_info.running -= 1;
+                        test_info.runs += 1;
                         update_tests_info(&test_info);
                         return;
                     }
@@ -303,6 +307,7 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     if !success {
                         test_info.state = TestState::WrongAnswer;
                         test_info.running -= 1;
+                        test_info.runs += 1;
                         update_tests_info(&test_info);
                         return;
                     }
@@ -372,6 +377,7 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                 {
                     let mut test_info = test_info.lock().unwrap();
                     test_info.running -= 1;
+                    test_info.runs += 1;
                     update_tests_info(&test_info);
                 }
             });
@@ -445,11 +451,8 @@ fn read_config() -> Config {
         eprintln!("Result function must be \"sum\" or \"avg\"");
         std::process::exit(1);
     }
-    if let Some(ref mut v) = config.skip_tests {
-        v.sort();
-    } else {
-        config.skip_tests = Some(Vec::new());
-    }
+    config.skip_tests.sort();
+    config.run_tests.sort();
     if config.precision.is_none() {
         config.precision = Some(3);
     }

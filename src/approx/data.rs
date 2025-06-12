@@ -27,7 +27,10 @@ pub struct Config {
     pub tests: usize,
     pub optimize: String,    // "min" or "max"
     pub result_func: String, // "sum" or "avg"
-    pub skip_tests: Option<Vec<usize>>,
+    #[serde(default)]
+    pub skip_tests: Vec<usize>,
+    #[serde(default)]
+    pub run_tests: Vec<usize>,
     pub precision: Option<usize>,
     #[serde(default = "default_true")]
     pub remote_outputs: bool,
