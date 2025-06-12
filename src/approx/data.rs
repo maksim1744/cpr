@@ -15,6 +15,11 @@ pub struct RemoteConfig {
     #[serde(default)]
     pub prerun: Vec<Vec<String>>,
     pub threads: usize,
+    pub score: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -24,6 +29,8 @@ pub struct Config {
     pub result_func: String, // "sum" or "avg"
     pub skip_tests: Option<Vec<usize>>,
     pub precision: Option<usize>,
+    #[serde(default = "default_true")]
+    pub remote_outputs: bool,
 
     pub threads: Option<usize>,
 

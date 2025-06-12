@@ -126,28 +126,53 @@ impl Client {
                 .unwrap(),
         )
         .unwrap();
+        if need.is_empty() {
+            return;
+        }
 
-        let mut files = HashMap::new();
-        for file in need.into_iter() {
+        let mut files = vec![HashMap::new()];
+        let mut cur_size = 0;
+        let mut tot_size = 0;
+        for file in need.iter() {
             let bytes = std::fs::read(&file).unwrap();
             let executable = std::fs::metadata(&file).unwrap().mode() & 0o111 != 0;
-            files.insert(
-                file,
+            let cur = files.last_mut().unwrap();
+            cur_size += bytes.len();
+            tot_size += bytes.len();
+            cur.insert(
+                file.clone(),
                 FileInfo {
                     data: base64ct::Base64::encode_string(&bytes),
                     executable,
                 },
             );
+            if cur_size >= 1_000_000 {
+                cur_size = 0;
+                files.push(HashMap::new());
+            }
         }
-        self.post(
-            "/send-files",
-            &SendFilesRequest {
-                files,
-                workdir: self.workdir.clone(),
-            },
-            1,
-        )
-        .unwrap();
+        if files.last().unwrap().is_empty() {
+            files.pop();
+        }
+        eprintln!(
+            "Sending {} files of total size {}MB in {} chunks",
+            need.len(),
+            tot_size >> 20,
+            files.len()
+        );
+        for (i, chunk) in files.into_iter().enumerate() {
+            eprint!("\rSending chunk {}...", i + 1);
+            self.post(
+                "/send-files",
+                &SendFilesRequest {
+                    files: chunk,
+                    workdir: self.workdir.clone(),
+                },
+                1,
+            )
+            .unwrap();
+        }
+        eprintln!();
     }
 
     fn prerun(&self) {

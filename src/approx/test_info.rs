@@ -32,6 +32,7 @@ pub struct TestInfo {
     pub time: String,
     pub cpu_time: f64,
     pub runs: usize,
+    pub running: usize,
     pub total_runs: usize,
     pub result: TestResult,
 }
@@ -46,6 +47,7 @@ impl TestInfo {
             time: String::new(),
             cpu_time: 0.0,
             runs: 0,
+            running: 0,
             total_runs,
             result: TestResult::Same,
         }
@@ -120,7 +122,12 @@ impl TestInfo {
             if self.state == TestState::Skipped {
                 String::new()
             } else {
-                format!("{}/{}", self.runs, self.total_runs)
+                let running = if self.running > 0 {
+                    format!(" ({})", self.running)
+                } else {
+                    String::new()
+                };
+                format!("{}/{}{}", self.runs, self.total_runs, running)
             }
         )
         .unwrap();

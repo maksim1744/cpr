@@ -206,6 +206,8 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     tests_info.lock().unwrap()[index] = test_info.clone();
                 };
 
+                test_info.lock().unwrap().running += 1;
+
                 // run solution
                 update_tests_info(&*test_info.lock().unwrap());
                 if !args.norun {
@@ -246,6 +248,7 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
 
                     if !success {
                         test_info.state = TestState::Failed;
+                        test_info.running -= 1;
                         update_tests_info(&test_info);
                         return;
                     }
@@ -256,38 +259,56 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     update_tests_info(&test_info);
                 }
 
-                if let Some(client) = client.as_ref() {
-                    client.get_file(format!("tests/{}.out", test_name));
-                }
-
                 // calculate score from .out
                 {
                     let mut filename_vec = config.scorer.as_ref().unwrap().clone();
                     filename_vec.push(format!("tests/{}.in", ans_test_name));
                     filename_vec.push(format!("tests/{}.out", test_name));
-
-                    let mut p = match Popen::create(
-                        &filename_vec[..],
-                        PopenConfig {
-                            stdout: Redirection::File(fs::File::create(format!("tests/{}.tmp", test_name)).unwrap()),
-                            stderr: Redirection::File(fs::File::create(format!("tests/{}.err", test_name)).unwrap()),
-                            ..Default::default()
-                        },
-                    ) {
-                        Ok(x) => x,
-                        Err(_) => {
-                            eprintln!("Error when starting process {:?}", filename_vec);
-                            std::process::exit(1)
-                        }
+                    let client = match config.remote.as_ref().map(|c| c.score) {
+                        Some(true) => client.as_ref(),
+                        _ => None,
                     };
 
-                    p.wait().unwrap();
-                    let exit_status = p.poll().unwrap();
+                    let success = if let Some(client) = client.as_ref() {
+                        client.run(vec![
+                            "bash".to_string(),
+                            "-c".to_string(),
+                            filename_vec.join(" ") + &format!(" >tests/{}.tmp", test_name),
+                        ])
+                    } else {
+                        let mut p = match Popen::create(
+                            &filename_vec[..],
+                            PopenConfig {
+                                stdout: Redirection::File(
+                                    fs::File::create(format!("tests/{}.tmp", test_name)).unwrap(),
+                                ),
+                                stderr: Redirection::File(
+                                    fs::File::create(format!("tests/{}.err", test_name)).unwrap(),
+                                ),
+                                ..Default::default()
+                            },
+                        ) {
+                            Ok(x) => x,
+                            Err(_) => {
+                                eprintln!("Error when starting process {:?}", filename_vec);
+                                std::process::exit(1)
+                            }
+                        };
+
+                        p.wait().unwrap();
+                        p.poll().unwrap().success()
+                    };
+
                     let mut test_info = test_info.lock().unwrap();
-                    if !exit_status.success() {
+                    if !success {
                         test_info.state = TestState::WrongAnswer;
+                        test_info.running -= 1;
                         update_tests_info(&test_info);
                         return;
+                    }
+
+                    if let Some(client) = client.as_ref() {
+                        client.get_file(format!("tests/{}.tmp", test_name));
                     }
                     let out = fs::read_to_string(format!("tests/{}.tmp", test_name)).unwrap();
                     let new_score = out.trim().parse().expect("Can't parse score");
@@ -322,6 +343,10 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     update_tests_info(&test_info);
 
                     if current_better {
+                        if let Some(client) = client.as_ref() {
+                            client.get_file(format!("tests/{}.out", test_name));
+                        }
+
                         fs::copy(
                             format!("tests/{}.out", test_name),
                             format!("tests/{}.ans", ans_test_name),
@@ -335,6 +360,19 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                         total_info.score += test_info.new_score.unwrap();
                         total_info.delta += test_info.new_score.unwrap();
                     }
+                }
+                if config.remote_outputs && run != 1 {
+                    let output = format!("tests/{}.out", test_name);
+                    if let Some(client) = client.as_ref() {
+                        client.run(vec!["rm".to_string(), output.clone()]);
+                    }
+                    let _ = std::fs::remove_file(output);
+                }
+
+                {
+                    let mut test_info = test_info.lock().unwrap();
+                    test_info.running -= 1;
+                    update_tests_info(&test_info);
                 }
             });
         }
