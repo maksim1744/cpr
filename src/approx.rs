@@ -258,7 +258,6 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     }
                 } else {
                     let mut test_info = test_info.lock().unwrap();
-                    test_info.runs += 1;
                     test_info.time = format!("{:->12}", "");
                     update_tests_info(&test_info);
                 }

@@ -7,6 +7,10 @@ pub struct NotionConfig {
     pub database: String,
 }
 
+fn default_bool<const B: bool>() -> bool {
+    B
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RemoteConfig {
     pub local_port: u16,
@@ -15,11 +19,8 @@ pub struct RemoteConfig {
     #[serde(default)]
     pub prerun: Vec<Vec<String>>,
     pub threads: usize,
+    #[serde(default = "default_bool::<false>")]
     pub score: bool,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -32,7 +33,7 @@ pub struct Config {
     #[serde(default)]
     pub run_tests: Vec<usize>,
     pub precision: Option<usize>,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_bool::<true>")]
     pub remote_outputs: bool,
 
     pub threads: Option<usize>,
