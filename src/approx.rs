@@ -267,39 +267,43 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                     let mut filename_vec = config.scorer.as_ref().unwrap().clone();
                     filename_vec.push(format!("tests/{}.in", ans_test_name));
                     filename_vec.push(format!("tests/{}.out", test_name));
-                    let client = match config.remote.as_ref().map(|c| c.score) {
-                        Some(true) => client.as_ref(),
-                        _ => None,
-                    };
 
-                    let success = if let Some(client) = client.as_ref() {
-                        client.run(vec![
-                            "bash".to_string(),
-                            "-c".to_string(),
-                            filename_vec.join(" ") + &format!(" >tests/{}.tmp", test_name),
-                        ])
-                    } else {
-                        let mut p = match Popen::create(
-                            &filename_vec[..],
-                            PopenConfig {
-                                stdout: Redirection::File(
-                                    fs::File::create(format!("tests/{}.tmp", test_name)).unwrap(),
-                                ),
-                                stderr: Redirection::File(
-                                    fs::File::create(format!("tests/{}.err", test_name)).unwrap(),
-                                ),
-                                ..Default::default()
-                            },
-                        ) {
-                            Ok(x) => x,
-                            Err(_) => {
-                                eprintln!("Error when starting process {:?}", filename_vec);
-                                std::process::exit(1)
+                    let success = match (client.as_ref(), config.remote.as_ref().map(|c| c.score)) {
+                        (Some(client), Some(true)) => {
+                            let success = client.run(vec![
+                                "bash".to_string(),
+                                "-c".to_string(),
+                                filename_vec.join(" ") + &format!(" >tests/{}.tmp", test_name),
+                            ]);
+                            client.get_file(format!("tests/{}.tmp", test_name));
+                            success
+                        }
+                        (client, _) => {
+                            if let Some(client) = client {
+                                client.get_file(format!("tests/{}.out", test_name));
                             }
-                        };
+                            let mut p = match Popen::create(
+                                &filename_vec[..],
+                                PopenConfig {
+                                    stdout: Redirection::File(
+                                        fs::File::create(format!("tests/{}.tmp", test_name)).unwrap(),
+                                    ),
+                                    stderr: Redirection::File(
+                                        fs::File::create(format!("tests/{}.err", test_name)).unwrap(),
+                                    ),
+                                    ..Default::default()
+                                },
+                            ) {
+                                Ok(x) => x,
+                                Err(_) => {
+                                    eprintln!("Error when starting process {:?}", filename_vec);
+                                    std::process::exit(1)
+                                }
+                            };
 
-                        p.wait().unwrap();
-                        p.poll().unwrap().success()
+                            p.wait().unwrap();
+                            p.poll().unwrap().success()
+                        }
                     };
 
                     let mut test_info = test_info.lock().unwrap();
@@ -311,9 +315,6 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
                         return;
                     }
 
-                    if let Some(client) = client.as_ref() {
-                        client.get_file(format!("tests/{}.tmp", test_name));
-                    }
                     let out = fs::read_to_string(format!("tests/{}.tmp", test_name)).unwrap();
                     let new_score = out.trim().parse().expect("Can't parse score");
                     let mut current_better = false;
