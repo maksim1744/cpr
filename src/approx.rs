@@ -391,7 +391,15 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
     }
 
     pool.join();
+
     let mut stdout = stdout.lock().unwrap();
+    write!(stdout, "{}", cursor::MoveUp((config.tests + 1) as u16)).unwrap();
+    writeln!(stdout, "\r{}", title).unwrap();
+    writeln!(stdout, "\r{}", splitter).unwrap();
+    for test_info in tests_info.lock().unwrap().iter() {
+        test_info.print(&config, &mut stdout);
+        writeln!(stdout).unwrap();
+    }
 
     write!(stdout, "\n").unwrap();
     if config.result_func == "avg" {
