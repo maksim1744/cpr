@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{stdout, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use subprocess::{Popen, PopenConfig, Redirection};
 
 use crossterm::cursor;
+use crossterm::style::{Color, SetForegroundColor};
+use crossterm::ExecutableCommand;
 
 use threadpool::ThreadPool;
 
@@ -27,6 +29,23 @@ use data::*;
 use test_info::*;
 
 #[derive(Parser)]
+pub struct ApproxEvalArgs {
+    /// Test number
+    #[arg(long)]
+    test: usize,
+
+    /// Path to the solution output file
+    #[arg(long)]
+    file: PathBuf,
+}
+
+#[derive(Subcommand)]
+enum ApproxOptions {
+    /// Evaluate a solution output file on a single test and update the answer if improved
+    Eval(ApproxEvalArgs),
+}
+
+#[derive(Parser)]
 pub struct ApproxArgs {
     /// Apply changes from *.out files without running solution
     #[arg(long)]
@@ -39,10 +58,165 @@ pub struct ApproxArgs {
     /// Run main solution on remote host
     #[arg(long)]
     remote: bool,
+
+    /// Only run these tests (usually for one-off runs)
+    #[arg(long)]
+    tests: Vec<usize>,
+
+    #[command(subcommand)]
+    option: Option<ApproxOptions>,
+}
+
+fn score_output(config: &Config, test_name: &str, output_path: &Path, output_name: &str) -> f64 {
+    let mut filename_vec = config.scorer.as_ref().unwrap().clone();
+    filename_vec.push(format!("tests/{}.in", test_name));
+    filename_vec.push(output_path.to_string_lossy().into_owned());
+
+    let tmp_path = format!("tests/{}.tmp", test_name);
+    let err_path = format!("tests/{}.err", test_name);
+
+    let mut p = match Popen::create(
+        &filename_vec[..],
+        PopenConfig {
+            stdout: Redirection::File(fs::File::create(&tmp_path).unwrap()),
+            stderr: Redirection::File(fs::File::create(&err_path).unwrap()),
+            ..Default::default()
+        },
+    ) {
+        Ok(x) => x,
+        Err(_) => {
+            eprintln!("Error when starting process {:?}", filename_vec);
+            std::process::exit(1)
+        }
+    };
+
+    p.wait().unwrap();
+    let exit_status = p.poll().unwrap();
+    if !exit_status.success() {
+        eprintln!("Scorer failed on {}", output_name);
+        let err = fs::read_to_string(&err_path).unwrap_or_default();
+        eprintln!("{}", err);
+        std::process::exit(1);
+    }
+
+    let out = fs::read_to_string(tmp_path).unwrap();
+    out.trim().parse().expect("Can't parse score")
+}
+
+fn is_better(config: &Config, new_score: f64, prev_score: f64) -> bool {
+    new_score != prev_score && (new_score > prev_score) == (config.optimize == "max")
+}
+
+fn get_result(config: &Config, prev_score: Option<f64>, new_score: f64) -> TestResult {
+    match prev_score {
+        Some(prev_score) if is_better(config, new_score, prev_score) => TestResult::Better,
+        Some(prev_score) if new_score != prev_score => TestResult::Worse,
+        _ => TestResult::Same,
+    }
+}
+
+fn print_eval_summary(config: &Config, test_name: &str, prev_score: Option<f64>, new_score: f64, result: TestResult) {
+    let precision = config.precision.unwrap();
+    let title = format!("| {: ^3} | {: ^12} | {: ^12} | {: ^12} |", "", "prev", "new", "delta");
+    let splitter: String = title.chars().map(|c| if c == '|' { '|' } else { '-' }).collect();
+
+    let mut stdout = stdout();
+    writeln!(stdout, "{}", title).unwrap();
+    writeln!(stdout, "{}", splitter).unwrap();
+    write!(stdout, "| {} | ", test_name).unwrap();
+    match prev_score {
+        Some(score) => write!(stdout, "{: >12.prec$}", score, prec = precision).unwrap(),
+        None => write!(stdout, "{: >12}", "").unwrap(),
+    };
+    write!(stdout, " | ").unwrap();
+    write!(stdout, "{: >12.prec$}", new_score, prec = precision).unwrap();
+    write!(stdout, " | ").unwrap();
+
+    let delta = match prev_score {
+        Some(prev_score) => {
+            let mut delta = format!("{:.prec$}", new_score - prev_score, prec = precision);
+            if delta.as_bytes()[0] != b'-' && result != TestResult::Same {
+                delta = "+".to_string() + &delta;
+            }
+            delta
+        }
+        None => String::new(),
+    };
+    stdout
+        .execute(match result {
+            TestResult::Better => SetForegroundColor(Color::Green),
+            TestResult::Worse => SetForegroundColor(Color::Red),
+            TestResult::Same => SetForegroundColor(Color::Reset),
+        })
+        .unwrap();
+    write!(stdout, "{: >12}", delta).unwrap();
+    stdout.execute(SetForegroundColor(Color::Reset)).unwrap();
+    writeln!(stdout, " |").unwrap();
+}
+
+fn run_finalize(config: &Config) {
+    let mut p = match Popen::create(
+        &config.finalize.as_ref().unwrap().clone(),
+        PopenConfig {
+            stdout: Redirection::Pipe,
+            stderr: Redirection::Pipe,
+            ..Default::default()
+        },
+    ) {
+        Ok(x) => x,
+        Err(_) => {
+            eprintln!(
+                "Error when starting process {:?}",
+                &config.finalize.as_ref().unwrap().clone()
+            );
+            std::process::exit(1)
+        }
+    };
+
+    let exit_status = p.wait().unwrap();
+    if !exit_status.success() {
+        eprintln!("finalize failed with status {:?}", exit_status);
+        std::process::exit(1)
+    }
+}
+
+fn approx_eval(args: &ApproxEvalArgs, config: &Config) {
+    let test_name = format!("{:0>3}", args.test);
+    let ans_path = PathBuf::from(format!("tests/{}.ans", test_name));
+
+    let prev_score = if ans_path.exists() {
+        Some(score_output(
+            config,
+            &test_name,
+            &ans_path,
+            &format!("{}.ans", test_name),
+        ))
+    } else {
+        None
+    };
+    let new_score = score_output(config, &test_name, &args.file, &args.file.to_string_lossy());
+    let result = get_result(config, prev_score, new_score);
+
+    print_eval_summary(config, &test_name, prev_score, new_score, result);
+
+    if prev_score.is_none() || is_better(config, new_score, prev_score.unwrap()) {
+        if args.file != ans_path {
+            fs::copy(&args.file, &ans_path).unwrap();
+        }
+        println!("Updated {}", ans_path.display());
+        run_finalize(config);
+    } else {
+        println!("Kept {}", ans_path.display());
+    }
 }
 
 pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
     let config = read_config();
+
+    if let Some(ApproxOptions::Eval(eval_args)) = args.option.as_ref() {
+        approx_eval(eval_args, &config);
+        return;
+    }
 
     let tests_info: Arc<Mutex<Vec<TestInfo>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -87,7 +261,10 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
     let splitter: String = title.chars().map(|c| if c == '|' { '|' } else { '-' }).collect();
     write!(stdout, "{}", splitter).unwrap();
 
-    for _ in 0..config.tests {
+    let tests = (1..config.tests + 1)
+        .filter(|t| args.tests.is_empty() || args.tests.contains(&t))
+        .collect::<Vec<_>>();
+    for _ in tests.iter() {
         write!(stdout, "\n").unwrap();
     }
 
@@ -102,9 +279,9 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
 
     let mut tasks = vec![vec![]; args.iters];
 
-    for test in 1..config.tests + 1 {
+    for &test in tests.iter() {
         let index: usize = tests_info.lock().unwrap().len();
-        let tests = config.tests;
+        let tests = tests.len();
 
         let config = config.clone();
 
@@ -393,7 +570,7 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
     pool.join();
 
     let mut stdout = stdout.lock().unwrap();
-    write!(stdout, "{}", cursor::MoveUp((config.tests + 1) as u16)).unwrap();
+    write!(stdout, "{}", cursor::MoveUp((tests.len() + 1) as u16)).unwrap();
     writeln!(stdout, "\r{}", title).unwrap();
     writeln!(stdout, "\r{}", splitter).unwrap();
     for test_info in tests_info.lock().unwrap().iter() {
@@ -404,39 +581,14 @@ pub fn approx(args: ApproxArgs, _params: &HashMap<String, String>) {
     write!(stdout, "\n").unwrap();
     if config.result_func == "avg" {
         let mut total_info = total_info.lock().unwrap();
-        total_info.score /= config.tests as f64;
-        total_info.delta /= config.tests as f64;
+        total_info.score /= tests.len() as f64;
+        total_info.delta /= tests.len() as f64;
     }
     total_info.lock().unwrap().finished = true;
     let total_score = format!("{:.10}", total_info.lock().unwrap().score);
     writeln!(stdout, "Total: {}", &total_score).unwrap();
 
-    // finalize
-    {
-        let mut p = match Popen::create(
-            &config.finalize.as_ref().unwrap().clone(),
-            PopenConfig {
-                stdout: Redirection::Pipe,
-                stderr: Redirection::Pipe,
-                ..Default::default()
-            },
-        ) {
-            Ok(x) => x,
-            Err(_) => {
-                eprintln!(
-                    "Error when starting process {:?}",
-                    &config.finalize.as_ref().unwrap().clone()
-                );
-                std::process::exit(1)
-            }
-        };
-
-        let exit_status = p.wait().unwrap();
-        if !exit_status.success() {
-            eprintln!("finalize failed with status {:?}", exit_status);
-            std::process::exit(1)
-        }
-    }
+    run_finalize(&config);
 
     if let Some(handle) = handle {
         handle.join().unwrap();

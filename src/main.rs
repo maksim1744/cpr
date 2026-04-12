@@ -1671,7 +1671,7 @@ enum Args {
 
     /// Run solution once on every input file and update better answers overall
     ///
-    /// Calls "main [num]" for each test, then with "scorer [file_in] [file_ans]"
+    /// Calls "main [file_in] [file_out]" for each test, then with "scorer [file_in] [file_ans]"
     /// compares current output from *.out and best answer from *.ans and leaves the
     /// best one. In the end calls "finalize".
     Approx(ApproxArgs),
